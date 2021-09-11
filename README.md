@@ -1,8 +1,8 @@
-# SMTP Mocker
+# SMTP BOX
 
 A smtp server you can interface with.
 
-Send an email and fetch the email that was sent over an http api.
+Send an email and fetch the email that was sent over a http api.
 
 Use cases 
 

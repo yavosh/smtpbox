@@ -3,9 +3,10 @@ package email
 import "time"
 
 type Email struct {
-	From string
-	To   []string
-	Body string
+	From     string
+	To       []string
+	Body     string
+	Received time.Time
 }
 
 type Mailbox struct {
