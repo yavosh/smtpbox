@@ -32,6 +32,18 @@ func (s *EmailService) Store(mailbox string, eml email.Email) error {
 	return nil
 }
 
+func (s *EmailService) AllMailboxes() ([]string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	list := make([]string, 0, len(s.store))
+	for key := range s.store {
+		list = append(list, key)
+	}
+
+	return list, nil
+}
+
 func (s *EmailService) GetMailbox(mailbox string) (email.Mailbox, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

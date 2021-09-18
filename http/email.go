@@ -9,7 +9,7 @@ import (
 func (s *Server) handleGetEmails(w http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
 	mailboxName := vars["mb"]
-	mb, err := s.emailService.GetMailbox(mailboxName)
+	emails, err := s.emailService.List(mailboxName)
 
 	if err != nil {
 		Server500(w)
@@ -17,5 +17,5 @@ func (s *Server) handleGetEmails(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	JSONResponse(w, http.StatusOK, map[string]interface{}{"status": "ok", "result": mb})
+	JSONResponse(w, http.StatusOK, map[string]interface{}{"status": "ok", "result": emails})
 }

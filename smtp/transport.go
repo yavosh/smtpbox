@@ -2,11 +2,12 @@ package smtp
 
 import (
 	"errors"
-	"github.com/emersion/go-smtp"
-	"github.com/yavosh/smtpbox/domain/email"
 	"io"
 	"strings"
 	"time"
+
+	"github.com/emersion/go-smtp"
+	"github.com/yavosh/smtpbox/domain/email"
 )
 
 // backend implements SMTP server methods
@@ -53,10 +54,12 @@ func (s *session) Rcpt(to string) error {
 }
 
 func (s *session) Data(r io.Reader) error {
+	// Read upto the limit
+	r = io.LimitReader(r, 20480) // 20kb
+
 	if b, err := io.ReadAll(r); err != nil {
 		return err
 	} else {
-		s.server.log.Printf("Data: \n%s", string(b))
 
 		// store email
 		eml := email.Email{
@@ -67,13 +70,15 @@ func (s *session) Data(r io.Reader) error {
 		}
 
 		for _, mailbox := range s.rcpt {
-			if strings.HasSuffix(mailbox, s.server.domain) {
-				err := s.server.emailService.Store(mailbox, eml)
+			if !strings.HasSuffix(mailbox, s.server.domain) {
+				s.server.log.Printf("unsupported domain: %s", mailbox)
+				continue
+			}
 
-				s.server.log.Printf("Adding email to backend mb:%s email:%+v", mailbox, eml)
-				if err != nil {
-					s.server.log.Printf("Error storing email mb:%s", mailbox)
-				}
+			err := s.server.emailService.Store(mailbox, eml)
+			s.server.log.Printf("Adding email to backend mb:%s email:%+v", mailbox, eml)
+			if err != nil {
+				s.server.log.Printf("Error storing email mb:%s", mailbox)
 			}
 		}
 	}

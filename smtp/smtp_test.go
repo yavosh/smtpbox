@@ -10,7 +10,7 @@ import (
 	"github.com/emersion/go-smtp"
 	"github.com/phayes/freeport"
 	"github.com/yavosh/smtpbox/inmem"
-	localsmtp "github.com/yavosh/smtpbox/smtp"
+	s "github.com/yavosh/smtpbox/smtp"
 )
 
 func TestSendEmail(t *testing.T) {
@@ -22,7 +22,7 @@ func TestSendEmail(t *testing.T) {
 	backend := inmem.NewEmailService()
 
 	log.Printf("using local port %d", port)
-	localServer := localsmtp.NewServer(fmt.Sprintf(":%d", port), "example.net", backend)
+	localServer := s.NewServer(fmt.Sprintf(":%d", port), "example.net", backend)
 	localServer.Start()
 
 	// Set up authentication information.

@@ -52,7 +52,8 @@ func (s *Server) Start() {
 		log.Fatalf("Can't start a running server")
 	}
 
-	log.Printf("Starting smtp server @ %s ", s.listenAddr)
+	s.log.Printf("Starting smtp server @ %s ", s.listenAddr)
+	s.log.Printf("Using smtp domain %s", s.domain)
 
 	instance := smtp.NewServer(&backend{server: s})
 	instance.Addr = s.listenAddr
