@@ -1,4 +1,4 @@
-package content
+package http
 
 const (
 	ApplicationJSON = "application/json"

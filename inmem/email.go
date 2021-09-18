@@ -8,17 +8,17 @@ import (
 	"github.com/yavosh/smtpbox/domain/email"
 )
 
-type EmailService struct {
+type EmailBackend struct {
 	mu    sync.Mutex
 	store map[string][]email.Email
 }
 
 // NewEmailService is the constructor for in-mem service
-func NewEmailService() email.Service {
-	return &EmailService{store: make(map[string][]email.Email, 0)}
+func NewEmailService() email.Backend {
+	return &EmailBackend{store: make(map[string][]email.Email, 0)}
 }
 
-func (s *EmailService) Store(mailbox string, eml email.Email) error {
+func (s *EmailBackend) Store(mailbox string, eml email.Email) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -32,7 +32,7 @@ func (s *EmailService) Store(mailbox string, eml email.Email) error {
 	return nil
 }
 
-func (s *EmailService) AllMailboxes() ([]string, error) {
+func (s *EmailBackend) AllMailboxes() ([]string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -44,7 +44,7 @@ func (s *EmailService) AllMailboxes() ([]string, error) {
 	return list, nil
 }
 
-func (s *EmailService) GetMailbox(mailbox string) (email.Mailbox, error) {
+func (s *EmailBackend) GetMailbox(mailbox string) (email.Mailbox, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -63,7 +63,7 @@ func (s *EmailService) GetMailbox(mailbox string) (email.Mailbox, error) {
 	return mb, nil
 }
 
-func (s *EmailService) List(mailbox string) ([]email.Email, error) {
+func (s *EmailBackend) List(mailbox string) ([]email.Email, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

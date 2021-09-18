@@ -20,10 +20,10 @@ type Server struct {
 	port         int
 	server       *http.Server
 	log          smtp.Logger
-	emailService email.Service
+	emailService email.Backend
 }
 
-func NewServer(port int, emailService email.Service) *Server {
+func NewServer(port int, emailService email.Backend) *Server {
 	router := mux.NewRouter().StrictSlash(true)
 
 	s := &Server{

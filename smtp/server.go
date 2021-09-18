@@ -16,7 +16,7 @@ type Server struct {
 	domain            string
 	additionalDomains []string
 	instance          *smtp.Server
-	emailService      email.Service
+	emailService      email.Backend
 	log               smtpbox.Logger
 }
 
@@ -24,7 +24,7 @@ type Server struct {
 type Option func(*Server)
 
 // NewServer is the constructor for the smtp agent
-func NewServer(listenAddr string, domain string, svc email.Service, opts ...Option) *Server {
+func NewServer(listenAddr string, domain string, svc email.Backend, opts ...Option) *Server {
 	s := &Server{
 		listenAddr:        listenAddr,
 		domain:            domain,

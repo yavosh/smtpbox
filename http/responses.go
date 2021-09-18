@@ -2,7 +2,6 @@ package http
 
 import (
 	"encoding/json"
-	"github.com/yavosh/smtpbox/http/content"
 	"log"
 	"net/http"
 )
@@ -29,7 +28,7 @@ func JSONResponse(w http.ResponseWriter, status int, value interface{}) {
 		return
 	}
 
-	w.Header().Add("Content-Type", content.ApplicationJSON)
+	w.Header().Add("Content-Type", ApplicationJSON)
 	w.WriteHeader(status)
 	_, err = w.Write(payload)
 	if err != nil {
@@ -38,9 +37,9 @@ func JSONResponse(w http.ResponseWriter, status int, value interface{}) {
 }
 
 func Response404(w http.ResponseWriter) {
-	StringResponse(w, http.StatusNotFound, content.TextHTML, responseString404)
+	StringResponse(w, http.StatusNotFound, TextHTML, responseString404)
 }
 
 func Server500(w http.ResponseWriter) {
-	StringResponse(w, http.StatusInternalServerError, content.TextHTML, responseString500)
+	StringResponse(w, http.StatusInternalServerError, TextHTML, responseString500)
 }
