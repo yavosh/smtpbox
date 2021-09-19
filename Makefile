@@ -19,6 +19,7 @@ down:
 
 build:
 	go build -o bin/smtpbox cmd/smtpbox/main.go
+	go build -o bin/sendmail cmd/sendmail/main.go
 
 clean:
 	rm -f ./bin/*

@@ -1,3 +1,4 @@
+// Package main starts the smtpbox server
 package main
 
 import (
