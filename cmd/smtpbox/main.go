@@ -4,6 +4,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"github.com/yavosh/smtpbox/dns"
 	"log"
 	"os"
 	"os/signal"
@@ -15,23 +16,26 @@ import (
 	"github.com/yavosh/smtpbox/smtp"
 )
 
-var (
-	httpPort   int
-	smtpPort   int
-	smtpDomain string
-)
-
 func main() {
+	var (
+		httpPort   int
+		smtpPort   int
+		smtpDomain string
+		dnsPort    int
+		dnsDomain  string
+	)
+
 	fs := flag.NewFlagSet("server", flag.ExitOnError)
 	fs.IntVar(&httpPort, "http-port", 8080, "listen port for the http server")
 	fs.IntVar(&smtpPort, "smtp-port", 1025, "listen port for the smtp server")
 	fs.StringVar(&smtpDomain, "smtp-domain", "localhost", "domain for smtp server")
+	fs.IntVar(&dnsPort, "dns-port", 53, "listen port for the smtp server")
+	fs.StringVar(&dnsDomain, "dns-domain", "localhost", "domain for smtp server")
+
 	err := ff.Parse(fs, os.Args[1:], ff.WithEnvVarNoPrefix())
 	if err != nil {
 		log.Fatalf("flag set: %v", err)
 	}
-
-	l := log.New(os.Stdout, "smtp ", log.LstdFlags)
 
 	backend := inmem.NewEmailService()
 
@@ -46,8 +50,17 @@ func main() {
 		backend,
 	)
 
+	dnsServer := dns.NewServer(
+		dnsPort,
+		dnsDomain,
+	)
+
 	if err := httpServer.Start(); err != nil {
-		l.Fatalf("error starting http %v", err)
+		log.Fatalf("error starting http %v", err)
+	}
+
+	if err := dnsServer.Start(); err != nil {
+		log.Fatalf("error starting dns %v", err)
 	}
 
 	smtpServer.Start()
@@ -64,10 +77,14 @@ func main() {
 	<-stop
 
 	if err := smtpServer.Stop(); err != nil {
-		l.Fatal(err)
+		log.Fatal(err)
 	}
 
 	if err := httpServer.Stop(); err != nil {
-		l.Fatal(err)
+		log.Fatal(err)
+	}
+
+	if err := dnsServer.Stop(); err != nil {
+		log.Fatal(err)
 	}
 }

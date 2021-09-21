@@ -49,7 +49,8 @@ func WithAdditionalDomain(d string) Option {
 
 func (s *Server) Start() {
 	if s.instance != nil {
-		log.Fatalf("Can't start a running server")
+		s.log.Fatalf("Can't start a running server")
+		return
 	}
 
 	s.log.Printf("Starting smtp server @ %s ", s.listenAddr)
