@@ -8,4 +8,3 @@ Use cases
 
 - integration testing emails like (welcome email, password verification etc)
 
-...
