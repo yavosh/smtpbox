@@ -12,7 +12,7 @@ help:
 	@echo "  cover		to run the tests with code coverage."
 
 up:
-	docker-compose -f $(DOCKER_COMPOSE_YAML) up --build
+	docker-compose -f $(DOCKER_COMPOSE_YAML) up --build api
 
 down:
 	docker-compose -f $(DOCKER_COMPOSE_YAML) down

@@ -1,7 +1,7 @@
 FROM golang:1.19 as builder
 
 WORKDIR /build
-COPY .. ./
+COPY . ./
 
 # ldflags -w and -s result in smaller binary.
 # -w Omits the DWARF symbol table.
@@ -12,8 +12,8 @@ RUN CGO_ENABLED=0 go build -mod=mod -o smtpbox ./cmd/smtpbox/main.go
 FROM scratch
 COPY --from=builder /build/smtpbox /smtpbox
 
-ADD ../build/ca-certificates.crt /etc/ssl/certs/
-ADD ../build/zoneinfo.zip /zoneinfo.zip
+ADD ./build/ca-certificates.crt /etc/ssl/certs/
+ADD ./build/zoneinfo.zip /zoneinfo.zip
 
 ENV ZONEINFO "/zoneinfo.zip"
 
