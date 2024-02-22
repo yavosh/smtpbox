@@ -1,9 +1,10 @@
 package http
 
 import (
-	"github.com/gorilla/mux"
 	"log"
 	"net/http"
+
+	"github.com/gorilla/mux"
 )
 
 func (s *Server) handleListMailboxes(w http.ResponseWriter, req *http.Request) {

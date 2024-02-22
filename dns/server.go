@@ -8,6 +8,7 @@ import (
 	"os"
 
 	"github.com/miekg/dns"
+
 	"github.com/yavosh/smtpbox"
 )
 

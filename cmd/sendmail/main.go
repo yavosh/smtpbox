@@ -4,10 +4,10 @@ package main
 import (
 	"flag"
 	"fmt"
-	"github.com/emersion/go-sasl"
 	"os"
 	"strings"
 
+	"github.com/emersion/go-sasl"
 	"github.com/emersion/go-smtp"
 )
 

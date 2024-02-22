@@ -4,12 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/yavosh/smtpbox"
 	"log"
 	"net"
 	"net/http"
 	"os"
 	"time"
+
+	"github.com/yavosh/smtpbox"
 
 	"github.com/emersion/go-smtp"
 	"github.com/gorilla/handlers"

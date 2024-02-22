@@ -1,9 +1,10 @@
 package inmem
 
 import (
-	"github.com/yavosh/smtpbox"
 	"log"
 	"sync"
+
+	"github.com/yavosh/smtpbox"
 )
 
 type EmailBackend struct {

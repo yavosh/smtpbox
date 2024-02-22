@@ -2,10 +2,11 @@ package smtp
 
 import (
 	"errors"
-	"github.com/yavosh/smtpbox"
 	"io"
 	"strings"
 	"time"
+
+	"github.com/yavosh/smtpbox"
 
 	"github.com/emersion/go-smtp"
 )

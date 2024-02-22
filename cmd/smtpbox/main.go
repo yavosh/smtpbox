@@ -9,9 +9,9 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/yavosh/smtpbox/dns"
-
 	"github.com/peterbourgon/ff/v3"
+
+	"github.com/yavosh/smtpbox/dns"
 	"github.com/yavosh/smtpbox/http"
 	"github.com/yavosh/smtpbox/inmem"
 	"github.com/yavosh/smtpbox/smtp"

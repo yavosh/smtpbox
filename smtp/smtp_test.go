@@ -9,6 +9,7 @@ import (
 	"github.com/emersion/go-sasl"
 	"github.com/emersion/go-smtp"
 	"github.com/phayes/freeport"
+
 	"github.com/yavosh/smtpbox/inmem"
 	s "github.com/yavosh/smtpbox/smtp"
 )
@@ -26,7 +27,7 @@ func TestSendEmail(t *testing.T) {
 	localServer.Start()
 
 	// Set up authentication information.
-	auth := sasl.NewPlainClient("", "username", "password")
+	auth := sasl.NewPlainClient("test", "username", "password")
 
 	// Connect to the server, authenticate, set the sender and recipient,
 	// and send the email all in one step.
