@@ -1,31 +1,29 @@
 package inmem
 
 import (
+	"github.com/yavosh/smtpbox"
 	"log"
 	"sync"
-
-	"github.com/yavosh/smtpbox/domain"
-	"github.com/yavosh/smtpbox/domain/email"
 )
 
 type EmailBackend struct {
 	mu    sync.Mutex
-	store map[string][]email.Email
+	store map[string][]smtpbox.Email
 }
 
 // NewEmailService is the constructor for in-mem service
-func NewEmailService() email.Backend {
-	return &EmailBackend{store: make(map[string][]email.Email, 0)}
+func NewEmailService() smtpbox.EmailStoreBackend {
+	return &EmailBackend{store: make(map[string][]smtpbox.Email, 0)}
 }
 
-func (s *EmailBackend) Store(mailbox string, eml email.Email) error {
+func (s *EmailBackend) Store(mailbox string, eml smtpbox.Email) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	log.Println("Storing email", mailbox, eml)
 	_, found := s.store[mailbox]
 	if !found {
-		s.store[mailbox] = make([]email.Email, 0)
+		s.store[mailbox] = make([]smtpbox.Email, 0)
 	}
 
 	s.store[mailbox] = append(s.store[mailbox], eml)
@@ -44,17 +42,17 @@ func (s *EmailBackend) AllMailboxes() ([]string, error) {
 	return list, nil
 }
 
-func (s *EmailBackend) GetMailbox(mailbox string) (email.Mailbox, error) {
+func (s *EmailBackend) GetMailbox(mailbox string) (smtpbox.Mailbox, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	emails, found := s.store[mailbox]
 	if !found || len(emails) == 0 {
-		return email.Mailbox{}, domain.ErrorNotFound
+		return smtpbox.Mailbox{}, smtpbox.ErrorNotFound
 	}
 
 	firstEmail := emails[0]
-	mb := email.Mailbox{
+	mb := smtpbox.Mailbox{
 		Addr:      mailbox,
 		Size:      len(emails),
 		CreatedAt: firstEmail.Received,
@@ -63,13 +61,13 @@ func (s *EmailBackend) GetMailbox(mailbox string) (email.Mailbox, error) {
 	return mb, nil
 }
 
-func (s *EmailBackend) List(mailbox string) ([]email.Email, error) {
+func (s *EmailBackend) List(mailbox string) ([]smtpbox.Email, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	emails, found := s.store[mailbox]
 	if !found || len(emails) == 0 {
-		return []email.Email{}, domain.ErrorNotFound
+		return []smtpbox.Email{}, smtpbox.ErrorNotFound
 	}
 
 	return emails, nil

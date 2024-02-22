@@ -12,9 +12,12 @@ services:
       HTTP_PORT: 8080
       SMTP_PORT: 1025
       SMTP_DOMAIN: "example.net"
+      DNS_PORT: 1053
+      DNS_DOMAIN: "example.net"
     ports:
-      - "8080:8080"
-      - "1025:1025"
+      - "8080:8080/tcp"
+      - "1025:1025/tcp"
+      - "1053:1053/udp"
     networks:
       - dev_net
 

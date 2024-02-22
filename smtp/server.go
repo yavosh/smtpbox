@@ -8,7 +8,6 @@ import (
 	"errors"
 	"github.com/emersion/go-smtp"
 	"github.com/yavosh/smtpbox"
-	"github.com/yavosh/smtpbox/domain/email"
 )
 
 type Server struct {
@@ -16,7 +15,7 @@ type Server struct {
 	domain            string
 	additionalDomains []string
 	instance          *smtp.Server
-	emailService      email.Backend
+	emailService      smtpbox.EmailStoreBackend
 	log               smtpbox.Logger
 }
 
@@ -24,7 +23,7 @@ type Server struct {
 type Option func(*Server)
 
 // NewServer is the constructor for the smtp agent
-func NewServer(listenAddr string, domain string, svc email.Backend, opts ...Option) *Server {
+func NewServer(listenAddr string, domain string, svc smtpbox.EmailStoreBackend, opts ...Option) *Server {
 	s := &Server{
 		listenAddr:        listenAddr,
 		domain:            domain,

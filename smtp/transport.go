@@ -2,12 +2,12 @@ package smtp
 
 import (
 	"errors"
+	"github.com/yavosh/smtpbox"
 	"io"
 	"strings"
 	"time"
 
 	"github.com/emersion/go-smtp"
-	"github.com/yavosh/smtpbox/domain/email"
 )
 
 // backend implements SMTP server methods
@@ -62,7 +62,7 @@ func (s *session) Data(r io.Reader) error {
 	} else {
 
 		// store email
-		eml := email.Email{
+		eml := smtpbox.Email{
 			From:     s.from,
 			To:       s.rcpt,
 			Body:     string(b),

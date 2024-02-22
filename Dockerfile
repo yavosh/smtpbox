@@ -1,4 +1,4 @@
-FROM golang:1.19 as builder
+FROM golang:1.22 as builder
 
 WORKDIR /build
 COPY . ./
@@ -11,8 +11,8 @@ RUN CGO_ENABLED=0 go build -mod=mod -a -ldflags "-w -s" -o smtpbox ./cmd/smtpbox
 FROM scratch
 COPY --from=builder /build/smtpbox /smtpbox
 
-ADD ./build/ca-certificates.crt /etc/ssl/certs/
-ADD ./build/zoneinfo.zip /zoneinfo.zip
+ADD build/ca-certificates.crt /etc/ssl/certs/
+ADD build/zoneinfo.zip /zoneinfo.zip
 
 ENV ZONEINFO "/zoneinfo.zip"
 

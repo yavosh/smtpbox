@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/yavosh/smtpbox"
 	"log"
 	"net"
 	"net/http"
@@ -13,17 +14,16 @@ import (
 	"github.com/emersion/go-smtp"
 	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
-	"github.com/yavosh/smtpbox/domain/email"
 )
 
 type Server struct {
 	port         int
 	server       *http.Server
 	log          smtp.Logger
-	emailService email.Backend
+	emailService smtpbox.EmailStoreBackend
 }
 
-func NewServer(port int, emailService email.Backend) *Server {
+func NewServer(port int, emailService smtpbox.EmailStoreBackend) *Server {
 	router := mux.NewRouter().StrictSlash(true)
 
 	s := &Server{
@@ -53,7 +53,7 @@ func (s *Server) Start() error {
 
 	go func() {
 		// Ignore if due to Shutdown.
-		if err := s.server.Serve(ln); err != http.ErrServerClosed {
+		if err := s.server.Serve(ln); !errors.Is(err, http.ErrServerClosed) {
 			s.log.Printf("Error starting http server %v", err)
 		}
 	}()
