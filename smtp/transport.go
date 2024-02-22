@@ -10,9 +10,18 @@ import (
 	"github.com/emersion/go-smtp"
 )
 
+var _ smtp.Backend = &backend{}
+
 // backend implements SMTP server methods
 type backend struct {
 	server *Server
+}
+
+func (b *backend) NewSession(c *smtp.Conn) (smtp.Session, error) {
+	return &session{
+		server: b.server,
+		rcpt:   make([]string, 0),
+	}, nil
 }
 
 // session is returned after successful login
@@ -23,32 +32,23 @@ type session struct {
 	rcpt     []string
 }
 
-// Login handles a login command with username and password.
-func (b *backend) Login(_ *smtp.ConnectionState, username, password string) (smtp.Session, error) {
+func (s *session) AuthPlain(username, password string) error {
 	if password != "password" {
-		return nil, errors.New("invalid username or password")
+		return errors.New("invalid username or password")
 	}
 
-	return &session{
-		server:   b.server,
-		username: username,
-		rcpt:     make([]string, 0),
-	}, nil
+	s.username = username
+	return nil
 }
 
-// AnonymousLogin requires clients to authenticate using SMTP AUTH before sending emails
-func (b *backend) AnonymousLogin(_ *smtp.ConnectionState) (smtp.Session, error) {
-	return nil, smtp.ErrAuthRequired
-}
-
-func (s *session) Mail(from string, _ smtp.MailOptions) error {
-	s.server.log.Printf("Mail from: %s", from)
+func (s *session) Mail(from string, opts *smtp.MailOptions) error {
+	s.server.log.Printf("Mail from: %s %#v", from, opts)
 	s.from = from
 	return nil
 }
 
-func (s *session) Rcpt(to string) error {
-	s.server.log.Printf("Rcpt to: %s", to)
+func (s *session) Rcpt(to string, opts *smtp.RcptOptions) error {
+	s.server.log.Printf("Rcpt to: %s %#v", to, opts)
 	s.rcpt = append(s.rcpt, to)
 	return nil
 }
