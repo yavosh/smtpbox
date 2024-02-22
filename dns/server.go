@@ -12,7 +12,7 @@ import (
 	"github.com/yavosh/smtpbox"
 )
 
-var domainsToAddresses map[string]string = map[string]string{
+var domainsToAddresses = map[string]string{
 	"example.com.":      "127.0.0.1",
 	"example.org.":      "127.0.0.1",
 	"example.net.":      "127.0.0.1",

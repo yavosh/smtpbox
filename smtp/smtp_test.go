@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/emersion/go-sasl"
 	"github.com/emersion/go-smtp"
 	"github.com/phayes/freeport"
 
@@ -26,9 +25,6 @@ func TestSendEmail(t *testing.T) {
 	localServer := s.NewServer(fmt.Sprintf(":%d", port), "example.net", backend)
 	localServer.Start()
 
-	// Set up authentication information.
-	auth := sasl.NewPlainClient("test", "username", "password")
-
 	// Connect to the server, authenticate, set the sender and recipient,
 	// and send the email all in one step.
 	to := []string{"recipient@example.net"}
@@ -36,10 +32,30 @@ func TestSendEmail(t *testing.T) {
 		"Subject: discount Gophers!\r\n" +
 		"\r\n" +
 		"This is the email body.\r\n")
-	err = smtp.SendMail(fmt.Sprintf("localhost:%d", port), auth, "sender@example.org", to, msg)
+
+	smtpClient, err := smtp.Dial(fmt.Sprintf("localhost:%d", port))
 	if err != nil {
-		t.Fatalf("could not send email %v", err)
+		t.Fatalf("could not dial %v", err)
 	}
+
+	if err := smtpClient.Hello("localhost"); err != nil {
+		t.Fatalf("could not hello %v", err)
+	}
+
+	// Set up authentication information.
+	//auth := sasl.NewPlainClient("test", "username", "password")
+	//if err := smtpClient.Auth(auth); err != nil {
+	//	t.Fatalf("could not auth %v", err)
+	//}
+
+	if err := smtpClient.SendMail("sender@example.net", to, msg); err != nil {
+		t.Fatalf("could not send %v", err)
+	}
+
+	//err = smtp.SendMail(fmt.Sprintf("localhost:%d", port), nil, "sender@example.org", to, msg)
+	//if err != nil {
+	//	t.Fatalf("could not send email %v", err)
+	//}
 
 	if err := localServer.Stop(); err != nil {
 		t.Fatalf("cloud not stop server %v", err)
