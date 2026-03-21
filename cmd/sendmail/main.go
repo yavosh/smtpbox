@@ -43,7 +43,7 @@ func main() {
 
 	var auth sasl.Client
 	if saslUsername != "" && saslPassword != "" {
-		auth = sasl.NewPlainClient("", "username", "password")
+		auth = sasl.NewPlainClient("", saslUsername, saslPassword)
 	}
 
 	recipients := strings.Split(emailRecipient, ",")
