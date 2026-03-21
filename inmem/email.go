@@ -1,7 +1,7 @@
 package inmem
 
 import (
-	"log"
+	"log/slog"
 	"sync"
 
 	"github.com/yavosh/smtpbox"
@@ -10,21 +10,23 @@ import (
 type EmailBackend struct {
 	mu    sync.Mutex
 	store map[string][]smtpbox.Email
+	log   *slog.Logger
 }
 
-// NewEmailService is the constructor for in-mem service
 func NewEmailService() smtpbox.EmailStoreBackend {
-	return &EmailBackend{store: make(map[string][]smtpbox.Email, 0)}
+	return &EmailBackend{
+		store: make(map[string][]smtpbox.Email),
+		log:   slog.Default(),
+	}
 }
 
 func (s *EmailBackend) Store(mailbox string, eml smtpbox.Email) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	log.Println("Storing email", mailbox, eml)
-	_, found := s.store[mailbox]
-	if !found {
-		s.store[mailbox] = make([]smtpbox.Email, 0)
+	s.log.Info("storing email", "mailbox", mailbox, "from", eml.From)
+	if _, found := s.store[mailbox]; !found {
+		s.store[mailbox] = []smtpbox.Email{}
 	}
 
 	s.store[mailbox] = append(s.store[mailbox], eml)
@@ -49,17 +51,14 @@ func (s *EmailBackend) GetMailbox(mailbox string) (smtpbox.Mailbox, error) {
 
 	emails, found := s.store[mailbox]
 	if !found || len(emails) == 0 {
-		return smtpbox.Mailbox{}, smtpbox.ErrorNotFound
+		return smtpbox.Mailbox{}, smtpbox.ErrNotFound
 	}
 
-	firstEmail := emails[0]
-	mb := smtpbox.Mailbox{
+	return smtpbox.Mailbox{
 		Addr:      mailbox,
 		Size:      len(emails),
-		CreatedAt: firstEmail.Received,
-	}
-
-	return mb, nil
+		CreatedAt: emails[0].Received,
+	}, nil
 }
 
 func (s *EmailBackend) List(mailbox string) ([]smtpbox.Email, error) {
@@ -68,7 +67,7 @@ func (s *EmailBackend) List(mailbox string) ([]smtpbox.Email, error) {
 
 	emails, found := s.store[mailbox]
 	if !found || len(emails) == 0 {
-		return []smtpbox.Email{}, smtpbox.ErrorNotFound
+		return []smtpbox.Email{}, smtpbox.ErrNotFound
 	}
 
 	return emails, nil
