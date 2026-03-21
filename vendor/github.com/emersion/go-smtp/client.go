@@ -12,6 +12,7 @@ import (
 	"io"
 	"net"
 	"net/textproto"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -27,14 +28,13 @@ type Client struct {
 	text       *textproto.Conn
 	serverName string
 	lmtp       bool
-	// map of supported extensions
-	ext map[string]string
-	// supported auth mechanisms
-	auth       []string
-	localName  string   // the name to use in HELO/EHLO/LHLO
-	didHello   bool     // whether we've said HELO/EHLO/LHLO
-	helloError error    // the error from the hello
-	rcpts      []string // recipients accumulated for the current session
+	ext        map[string]string // supported extensions
+	localName  string            // the name to use in HELO/EHLO/LHLO
+	didGreet   bool              // whether we've received greeting from server
+	greetError error             // the error from the greeting
+	didHello   bool              // whether we've said HELO/EHLO/LHLO
+	helloError error             // the error from the hello
+	rcpts      []string          // recipients accumulated for the current session
 
 	// Time to wait for command responses (this includes 3xx reply to DATA).
 	CommandTimeout time.Duration
@@ -47,14 +47,13 @@ type Client struct {
 
 // 30 seconds was chosen as it's the same duration as http.DefaultTransport's
 // timeout.
-const defaultTimeout = 30 * time.Second
-
-var defaultDialer = net.Dialer{Timeout: defaultTimeout}
+var defaultDialer = net.Dialer{Timeout: 30 * time.Second}
 
 // Dial returns a new Client connected to an SMTP server at addr. The addr must
 // include a port, as in "mail.example.com:smtp".
 //
-// This function returns a plaintext connection. To enable TLS, use StartTLS.
+// This function returns a plaintext connection. To enable TLS, use
+// DialStartTLS.
 func Dial(addr string) (*Client, error) {
 	conn, err := defaultDialer.Dial("tcp", addr)
 	if err != nil {
@@ -83,6 +82,22 @@ func DialTLS(addr string, tlsConfig *tls.Config) (*Client, error) {
 	return client, nil
 }
 
+// DialStartTLS returns a new Client connected to an SMTP server via STARTTLS
+// at addr. The addr must include a port, as in "mail.example.com:smtp".
+//
+// A nil tlsConfig is equivalent to a zero tls.Config.
+func DialStartTLS(addr string, tlsConfig *tls.Config) (*Client, error) {
+	c, err := Dial(addr)
+	if err != nil {
+		return nil, err
+	}
+	if err := initStartTLS(c, tlsConfig); err != nil {
+		c.Close()
+		return nil, err
+	}
+	return c, nil
+}
+
 // NewClient returns a new Client using an existing connection and host as a
 // server name to be used when authenticating.
 func NewClient(conn net.Conn) *Client {
@@ -100,6 +115,29 @@ func NewClient(conn net.Conn) *Client {
 	c.setConn(conn)
 
 	return c
+}
+
+// NewClientStartTLS creates a new Client and performs a STARTTLS command.
+func NewClientStartTLS(conn net.Conn, tlsConfig *tls.Config) (*Client, error) {
+	c := NewClient(conn)
+	if err := initStartTLS(c, tlsConfig); err != nil {
+		c.Close()
+		return nil, err
+	}
+	return c, nil
+}
+
+func initStartTLS(c *Client, tlsConfig *tls.Config) error {
+	if err := c.hello(); err != nil {
+		return err
+	}
+	if ok, _ := c.Extension("STARTTLS"); !ok {
+		return errors.New("smtp: server doesn't support STARTTLS")
+	}
+	if err := c.startTLS(tlsConfig); err != nil {
+		return err
+	}
+	return nil
 }
 
 // NewClientLMTP returns a new LMTP Client (as defined in RFC 2033) using an
@@ -144,30 +182,42 @@ func (c *Client) Close() error {
 }
 
 func (c *Client) greet() error {
+	if c.didGreet {
+		return c.greetError
+	}
+
 	// Initial greeting timeout. RFC 5321 recommends 5 minutes.
 	c.conn.SetDeadline(time.Now().Add(c.CommandTimeout))
 	defer c.conn.SetDeadline(time.Time{})
 
-	_, _, err := c.text.ReadResponse(220)
+	c.didGreet = true
+	_, _, err := c.readResponse(220)
 	if err != nil {
+		c.greetError = err
 		c.text.Close()
-		if protoErr, ok := err.(*textproto.Error); ok {
-			return toSMTPErr(protoErr)
-		}
-		return err
 	}
 
-	return nil
+	return c.greetError
 }
 
 // hello runs a hello exchange if needed.
 func (c *Client) hello() error {
-	if !c.didHello {
-		c.didHello = true
-		if err := c.greet(); err != nil {
-			c.helloError = err
-		} else if err := c.ehlo(); err != nil {
+	if c.didHello {
+		return c.helloError
+	}
+
+	if err := c.greet(); err != nil {
+		return err
+	}
+
+	c.didHello = true
+	if err := c.ehlo(); err != nil {
+		var smtpError *SMTPError
+		if errors.As(err, &smtpError) && (smtpError.Code == 500 || smtpError.Code == 502) {
+			// The server doesn't support EHLO, fallback to HELO
 			c.helloError = c.helo()
+		} else {
+			c.helloError = err
 		}
 	}
 	return c.helloError
@@ -191,6 +241,14 @@ func (c *Client) Hello(localName string) error {
 	return c.hello()
 }
 
+func (c *Client) readResponse(expectCode int) (int, string, error) {
+	code, msg, err := c.text.ReadResponse(expectCode)
+	if protoErr, ok := err.(*textproto.Error); ok {
+		err = toSMTPErr(protoErr)
+	}
+	return code, msg, err
+}
+
 // cmd is a convenience function that sends a command and returns the response
 // textproto.Error returned by c.text.ReadResponse is converted into SMTPError.
 func (c *Client) cmd(expectCode int, format string, args ...interface{}) (int, string, error) {
@@ -203,15 +261,8 @@ func (c *Client) cmd(expectCode int, format string, args ...interface{}) (int, s
 	}
 	c.text.StartResponse(id)
 	defer c.text.EndResponse(id)
-	code, msg, err := c.text.ReadResponse(expectCode)
-	if err != nil {
-		if protoErr, ok := err.(*textproto.Error); ok {
-			smtpErr := toSMTPErr(protoErr)
-			return code, smtpErr.Message, smtpErr
-		}
-		return code, msg, err
-	}
-	return code, msg, nil
+
+	return c.readResponse(expectCode)
 }
 
 // helo sends the HELO greeting to the server. It should be used only when the
@@ -247,20 +298,17 @@ func (c *Client) ehlo() error {
 			}
 		}
 	}
-	if mechs, ok := ext["AUTH"]; ok {
-		c.auth = strings.Split(mechs, " ")
-	}
 	c.ext = ext
 	return err
 }
 
-// StartTLS sends the STARTTLS command and encrypts all further communication.
+// startTLS sends the STARTTLS command and encrypts all further communication.
 // Only servers that advertise the STARTTLS extension support this function.
 //
 // A nil config is equivalent to a zero tls.Config.
 //
 // If server returns an error, it will be of type *SMTPError.
-func (c *Client) StartTLS(config *tls.Config) error {
+func (c *Client) startTLS(config *tls.Config) error {
 	if err := c.hello(); err != nil {
 		return err
 	}
@@ -280,11 +328,12 @@ func (c *Client) StartTLS(config *tls.Config) error {
 		testHookStartTLS(config)
 	}
 	c.setConn(tls.Client(c.conn, config))
-	return c.ehlo()
+	c.didHello = false
+	return nil
 }
 
 // TLSConnectionState returns the client's TLS connection state.
-// The return values are their zero values if StartTLS did
+// The return values are their zero values if STARTTLS did
 // not succeed.
 func (c *Client) TLSConnectionState() (state tls.ConnectionState, ok bool) {
 	tc, ok := c.conn.(*tls.Conn)
@@ -324,8 +373,13 @@ func (c *Client) Auth(a sasl.Client) error {
 	if err != nil {
 		return err
 	}
-	resp64 := make([]byte, encoding.EncodedLen(len(resp)))
-	encoding.Encode(resp64, resp)
+	var resp64 []byte
+	if len(resp) > 0 {
+		resp64 = make([]byte, encoding.EncodedLen(len(resp)))
+		encoding.Encode(resp64, resp)
+	} else if resp != nil {
+		resp64 = []byte{'='}
+	}
 	code, msg64, err := c.cmd(0, strings.TrimSpace(fmt.Sprintf("AUTH %s %s", mech, resp64)))
 	for err == nil {
 		var msg []byte
@@ -445,7 +499,7 @@ func (c *Client) Rcpt(to string, opts *RcptOptions) error {
 	sb.Grow(2048)
 	fmt.Fprintf(&sb, "RCPT TO:<%s>", to)
 	if _, ok := c.ext["DSN"]; ok && opts != nil {
-		if opts.Notify != nil && len(opts.Notify) != 0 {
+		if len(opts.Notify) != 0 {
 			sb.WriteString(" NOTIFY=")
 			if err := checkNotifySet(opts.Notify); err != nil {
 				return errors.New("smtp: Malformed NOTIFY parameter value")
@@ -477,6 +531,25 @@ func (c *Client) Rcpt(to string, opts *RcptOptions) error {
 			fmt.Fprintf(&sb, " ORCPT=%s;%s", string(opts.OriginalRecipientType), enc)
 		}
 	}
+	if _, ok := c.ext["RRVS"]; ok && opts != nil && !opts.RequireRecipientValidSince.IsZero() {
+		sb.WriteString(fmt.Sprintf(" RRVS=%s", opts.RequireRecipientValidSince.Format(time.RFC3339)))
+	}
+	if _, ok := c.ext["DELIVERBY"]; ok && opts != nil && opts.DeliverBy != nil {
+		if opts.DeliverBy.Mode == DeliverByReturn && opts.DeliverBy.Time < 1 {
+			return errors.New("smtp: DELIVERBY mode must be greater than zero with return mode")
+		}
+		arg := fmt.Sprintf(" BY=%d;%s", int(opts.DeliverBy.Time.Seconds()), opts.DeliverBy.Mode)
+		if opts.DeliverBy.Trace {
+			arg += "T"
+		}
+		sb.WriteString(arg)
+	}
+	if _, ok := c.ext["MT-PRIORITY"]; ok && opts != nil && opts.MTPriority != nil {
+		if *opts.MTPriority < -9 || *opts.MTPriority > 9 {
+			return errors.New("smtp: MT-PRIORITY must be between -9 and 9")
+		}
+		sb.WriteString(fmt.Sprintf(" MT-PRIORITY=%d", *opts.MTPriority))
+	}
 	if _, _, err := c.cmd(25, "%s", sb.String()); err != nil {
 		return err
 	}
@@ -484,95 +557,159 @@ func (c *Client) Rcpt(to string, opts *RcptOptions) error {
 	return nil
 }
 
-type dataCloser struct {
-	c *Client
-	io.WriteCloser
-	statusCb func(rcpt string, status *SMTPError)
-	closed   bool
+// DataCommand is a pending DATA command. DataCommand is an io.WriteCloser.
+// See Client.Data.
+type DataCommand struct {
+	client *Client
+	wc     io.WriteCloser
+
+	closeErr error
 }
 
-func (d *dataCloser) Close() error {
-	if d.closed {
-		return fmt.Errorf("smtp: data writer closed twice")
+var _ io.WriteCloser = (*DataCommand)(nil)
+
+// Write implements io.Writer.
+func (cmd *DataCommand) Write(b []byte) (int, error) {
+	return cmd.wc.Write(b)
+}
+
+// Close implements io.Closer.
+func (cmd *DataCommand) Close() error {
+	var err error
+	if cmd.client.lmtp {
+		_, err = cmd.CloseWithLMTPResponse()
+	} else {
+		_, err = cmd.CloseWithResponse()
+	}
+	return err
+}
+
+// CloseWithResponse is equivalent to Close, but also returns the server
+// response. It cannot be called when the LMTP protocol is used.
+//
+// If server returns an error, it will be of type *SMTPError.
+func (cmd *DataCommand) CloseWithResponse() (*DataResponse, error) {
+	if cmd.client.lmtp {
+		return nil, errors.New("smtp: CloseWithResponse used with an LMTP client")
 	}
 
-	if err := d.WriteCloser.Close(); err != nil {
+	if err := cmd.close(); err != nil {
+		return nil, err
+	}
+
+	cmd.client.conn.SetDeadline(time.Now().Add(cmd.client.SubmissionTimeout))
+	defer cmd.client.conn.SetDeadline(time.Time{})
+
+	_, msg, err := cmd.client.readResponse(250)
+	if err != nil {
+		cmd.closeErr = err
+		return nil, err
+	}
+
+	return &DataResponse{StatusText: msg}, nil
+}
+
+// CloseWithLMTPResponse is equivalent to Close, but also returns per-recipient
+// server responses. It can only be called when the LMTP protocol is used.
+//
+// If server returns an error, it will be of type LMTPDataError.
+func (cmd *DataCommand) CloseWithLMTPResponse() (map[string]*DataResponse, error) {
+	if !cmd.client.lmtp {
+		return nil, errors.New("smtp: CloseWithLMTPResponse used without an LMTP client")
+	}
+
+	if err := cmd.close(); err != nil {
+		return nil, err
+	}
+
+	cmd.client.conn.SetDeadline(time.Now().Add(cmd.client.SubmissionTimeout))
+	defer cmd.client.conn.SetDeadline(time.Time{})
+
+	resp := make(map[string]*DataResponse, len(cmd.client.rcpts))
+	lmtpErr := make(LMTPDataError, len(cmd.client.rcpts))
+	for i := 0; i < len(cmd.client.rcpts); i++ {
+		rcpt := cmd.client.rcpts[i]
+		_, msg, err := cmd.client.readResponse(250)
+		if err != nil {
+			if smtpErr, ok := err.(*SMTPError); ok {
+				lmtpErr[rcpt] = smtpErr
+			} else {
+				if len(lmtpErr) > 0 {
+					return resp, errors.Join(err, lmtpErr)
+				}
+				return resp, err
+			}
+		} else {
+			resp[rcpt] = &DataResponse{StatusText: msg}
+		}
+	}
+
+	if len(lmtpErr) > 0 {
+		return resp, lmtpErr
+	}
+	return resp, nil
+}
+
+func (cmd *DataCommand) close() error {
+	if cmd.closeErr != nil {
+		return cmd.closeErr
+	}
+
+	if err := cmd.wc.Close(); err != nil {
+		cmd.closeErr = err
 		return err
 	}
 
-	d.c.conn.SetDeadline(time.Now().Add(d.c.SubmissionTimeout))
-	defer d.c.conn.SetDeadline(time.Time{})
-
-	expectedResponses := len(d.c.rcpts)
-	if d.c.lmtp {
-		for expectedResponses > 0 {
-			rcpt := d.c.rcpts[len(d.c.rcpts)-expectedResponses]
-			if _, _, err := d.c.text.ReadResponse(250); err != nil {
-				if protoErr, ok := err.(*textproto.Error); ok {
-					if d.statusCb != nil {
-						d.statusCb(rcpt, toSMTPErr(protoErr))
-					}
-				} else {
-					return err
-				}
-			} else if d.statusCb != nil {
-				d.statusCb(rcpt, nil)
-			}
-			expectedResponses--
-		}
-	} else {
-		_, _, err := d.c.text.ReadResponse(250)
-		if err != nil {
-			if protoErr, ok := err.(*textproto.Error); ok {
-				return toSMTPErr(protoErr)
-			}
-			return err
-		}
-	}
-
-	d.closed = true
+	cmd.closeErr = errors.New("smtp: data writer closed twice")
 	return nil
+}
+
+// DataResponse is the response returned by a DATA command. See
+// DataCommand.CloseWithResponse.
+type DataResponse struct {
+	// StatusText is the status text returned by the server. It may contain
+	// tracking information.
+	StatusText string
+}
+
+// LMTPDataError is a collection of errors returned by an LMTP server for a
+// DATA command. It holds per-recipient errors.
+type LMTPDataError map[string]*SMTPError
+
+// Error implements error.
+func (lmtpErr LMTPDataError) Error() string {
+	return errors.Join(lmtpErr.Unwrap()...).Error()
+}
+
+// Unwrap returns all per-recipient errors returned by the server.
+func (lmtpErr LMTPDataError) Unwrap() []error {
+	l := make([]error, 0, len(lmtpErr))
+	for rcpt, smtpErr := range lmtpErr {
+		l = append(l, fmt.Errorf("<%v>: %w", rcpt, smtpErr))
+	}
+	sort.Slice(l, func(i, j int) bool {
+		return l[i].Error() < l[j].Error()
+	})
+	return l
 }
 
 // Data issues a DATA command to the server and returns a writer that
 // can be used to write the mail headers and body. The caller should
 // close the writer before calling any more methods on c. A call to
 // Data must be preceded by one or more calls to Rcpt.
-//
-// If server returns an error, it will be of type *SMTPError.
-func (c *Client) Data() (io.WriteCloser, error) {
+func (c *Client) Data() (*DataCommand, error) {
 	_, _, err := c.cmd(354, "DATA")
 	if err != nil {
 		return nil, err
 	}
-	return &dataCloser{c: c, WriteCloser: c.text.DotWriter()}, nil
-}
-
-// LMTPData is the LMTP-specific version of the Data method. It accepts a callback
-// that will be called for each status response received from the server.
-//
-// Status callback will receive a SMTPError argument for each negative server
-// reply and nil for each positive reply. I/O errors will not be reported using
-// callback and instead will be returned by the Close method of io.WriteCloser.
-// Callback will be called for each successfull Rcpt call done before in the
-// same order.
-func (c *Client) LMTPData(statusCb func(rcpt string, status *SMTPError)) (io.WriteCloser, error) {
-	if !c.lmtp {
-		return nil, errors.New("smtp: not a LMTP client")
-	}
-
-	_, _, err := c.cmd(354, "DATA")
-	if err != nil {
-		return nil, err
-	}
-	return &dataCloser{c: c, WriteCloser: c.text.DotWriter(), statusCb: statusCb}, nil
+	return &DataCommand{client: c, wc: c.text.DotWriter()}, nil
 }
 
 // SendMail will use an existing connection to send an email from
 // address from, to addresses to, with message r.
 //
 // This function does not start TLS, nor does it perform authentication. Use
-// StartTLS and Auth before-hand if desirable.
+// DialStartTLS and Auth before-hand if desirable.
 //
 // The addresses in the to parameter are the SMTP RCPT addresses.
 //
@@ -606,6 +743,37 @@ func (c *Client) SendMail(from string, to []string, r io.Reader) error {
 
 var testHookStartTLS func(*tls.Config) // nil, except for tests
 
+func sendMail(addr string, implicitTLS bool, a sasl.Client, from string, to []string, r io.Reader) error {
+	var (
+		c   *Client
+		err error
+	)
+	if implicitTLS {
+		c, err = DialTLS(addr, nil)
+	} else {
+		c, err = DialStartTLS(addr, nil)
+	}
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+
+	if a != nil {
+		if ok, _ := c.Extension("AUTH"); !ok {
+			return errors.New("smtp: server doesn't support AUTH")
+		}
+		if err = c.Auth(a); err != nil {
+			return err
+		}
+	}
+
+	if err := c.SendMail(from, to, r); err != nil {
+		return err
+	}
+
+	return c.Quit()
+}
+
 // SendMail connects to the server at addr, switches to TLS, authenticates with
 // the optional SASL client, and then sends an email from address from, to
 // addresses to, with message r. The addr must include a port, as in
@@ -628,76 +796,12 @@ var testHookStartTLS func(*tls.Config) // nil, except for tests
 // attachments (see the mime/multipart package or the go-message package), or
 // other mail functionality.
 func SendMail(addr string, a sasl.Client, from string, to []string, r io.Reader) error {
-	if err := validateLine(from); err != nil {
-		return err
-	}
-	for _, recp := range to {
-		if err := validateLine(recp); err != nil {
-			return err
-		}
-	}
-
-	c, err := Dial(addr)
-	if err != nil {
-		return err
-	}
-	defer c.Close()
-
-	if err = c.hello(); err != nil {
-		return err
-	}
-	if ok, _ := c.Extension("STARTTLS"); !ok {
-		return errors.New("smtp: server doesn't support STARTTLS")
-	}
-	if err = c.StartTLS(nil); err != nil {
-		return err
-	}
-	if a != nil {
-		if ok, _ := c.Extension("AUTH"); !ok {
-			return errors.New("smtp: server doesn't support AUTH")
-		}
-		if err = c.Auth(a); err != nil {
-			return err
-		}
-	}
-	if err := c.SendMail(from, to, r); err != nil {
-		return err
-	}
-	return c.Quit()
+	return sendMail(addr, false, a, from, to, r)
 }
 
 // SendMailTLS works like SendMail, but with implicit TLS.
 func SendMailTLS(addr string, a sasl.Client, from string, to []string, r io.Reader) error {
-	if err := validateLine(from); err != nil {
-		return err
-	}
-	for _, recp := range to {
-		if err := validateLine(recp); err != nil {
-			return err
-		}
-	}
-
-	c, err := DialTLS(addr, nil)
-	if err != nil {
-		return err
-	}
-	defer c.Close()
-
-	if err = c.hello(); err != nil {
-		return err
-	}
-	if a != nil {
-		if ok, _ := c.Extension("AUTH"); !ok {
-			return errors.New("smtp: server doesn't support AUTH")
-		}
-		if err = c.Auth(a); err != nil {
-			return err
-		}
-	}
-	if err := c.SendMail(from, to, r); err != nil {
-		return err
-	}
-	return c.Quit()
+	return sendMail(addr, true, a, from, to, r)
 }
 
 // Extension reports whether an extension is support by the server.
@@ -708,12 +812,45 @@ func (c *Client) Extension(ext string) (bool, string) {
 	if err := c.hello(); err != nil {
 		return false, ""
 	}
-	if c.ext == nil {
-		return false, ""
-	}
 	ext = strings.ToUpper(ext)
 	param, ok := c.ext[ext]
 	return ok, param
+}
+
+// SupportsAuth checks whether an authentication mechanism is supported.
+func (c *Client) SupportsAuth(mech string) bool {
+	if err := c.hello(); err != nil {
+		return false
+	}
+	mechs, ok := c.ext["AUTH"]
+	if !ok {
+		return false
+	}
+	for _, m := range strings.Split(mechs, " ") {
+		if strings.EqualFold(m, mech) {
+			return true
+		}
+	}
+	return false
+}
+
+// MaxMessageSize returns the maximum message size accepted by the server.
+// 0 means unlimited.
+//
+// If the server doesn't convey this information, ok = false is returned.
+func (c *Client) MaxMessageSize() (size int, ok bool) {
+	if err := c.hello(); err != nil {
+		return 0, false
+	}
+	v := c.ext["SIZE"]
+	if v == "" {
+		return 0, false
+	}
+	size, err := strconv.Atoi(v)
+	if err != nil || size < 0 {
+		return 0, false
+	}
+	return size, true
 }
 
 // Reset sends the RSET command to the server, aborting the current mail
@@ -725,6 +862,11 @@ func (c *Client) Reset() error {
 	if _, _, err := c.cmd(250, "RSET"); err != nil {
 		return err
 	}
+
+	// allow custom HELLO again
+	c.didHello = false
+	c.helloError = nil
+
 	c.rcpts = nil
 	return nil
 }
