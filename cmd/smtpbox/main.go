@@ -1,15 +1,13 @@
-// Package main starts the smtpbox server
 package main
 
 import (
 	"flag"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
-
-	"github.com/peterbourgon/ff/v3"
 
 	"github.com/yavosh/smtpbox/dns"
 	"github.com/yavosh/smtpbox/http"
@@ -26,17 +24,12 @@ func main() {
 		dnsDomain  string
 	)
 
-	fs := flag.NewFlagSet("server", flag.ExitOnError)
-	fs.IntVar(&httpPort, "http-port", 8080, "listen port for the http server")
-	fs.IntVar(&smtpPort, "smtp-port", 1025, "listen port for the smtp server")
-	fs.StringVar(&smtpDomain, "smtp-domain", "localhost", "domain for smtp server")
-	fs.IntVar(&dnsPort, "dns-port", 1053, "listen port for the dns server")
-	fs.StringVar(&dnsDomain, "dns-domain", "localhost", "domain for dns server")
-
-	err := ff.Parse(fs, os.Args[1:], ff.WithEnvVarNoPrefix())
-	if err != nil {
-		log.Fatalf("flag set: %v", err)
-	}
+	flag.IntVar(&httpPort, "http-port", envInt("HTTP_PORT", 8080), "listen port for the http server")
+	flag.IntVar(&smtpPort, "smtp-port", envInt("SMTP_PORT", 1025), "listen port for the smtp server")
+	flag.StringVar(&smtpDomain, "smtp-domain", envString("SMTP_DOMAIN", "localhost"), "domain for smtp server")
+	flag.IntVar(&dnsPort, "dns-port", envInt("DNS_PORT", 1053), "listen port for the dns server")
+	flag.StringVar(&dnsDomain, "dns-domain", envString("DNS_DOMAIN", "localhost"), "domain for dns server")
+	flag.Parse()
 
 	backend := inmem.NewEmailService()
 
@@ -57,31 +50,46 @@ func main() {
 	)
 
 	if err := httpServer.Start(); err != nil {
-		log.Fatalf("error starting http %v", err)
+		slog.Error("error starting http", "error", err)
+		os.Exit(1)
 	}
 
 	if err := dnsServer.Start(); err != nil {
-		log.Fatalf("error starting dns %v", err)
+		slog.Error("error starting dns", "error", err)
+		os.Exit(1)
 	}
 
 	smtpServer.Start()
 
-	// Setting up signal capturing
 	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, os.Interrupt, os.Kill, syscall.SIGINT, syscall.SIGTERM)
-
-	// Waiting for SIGINT (pkill -2)
+	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	<-stop
 
 	if err := smtpServer.Stop(); err != nil {
-		log.Fatal(err)
+		slog.Error("error stopping smtp", "error", err)
 	}
 
 	if err := httpServer.Stop(); err != nil {
-		log.Fatal(err)
+		slog.Error("error stopping http", "error", err)
 	}
 
 	if err := dnsServer.Stop(); err != nil {
-		log.Fatal(err)
+		slog.Error("error stopping dns", "error", err)
 	}
+}
+
+func envString(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
+func envInt(key string, fallback int) int {
+	if v := os.Getenv(key); v != "" {
+		if i, err := strconv.Atoi(v); err == nil {
+			return i
+		}
+	}
+	return fallback
 }

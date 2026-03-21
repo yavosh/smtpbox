@@ -1,22 +1,24 @@
 package http
 
 import (
-	"log"
+	"errors"
 	"net/http"
 
-	"github.com/gorilla/mux"
+	"github.com/yavosh/smtpbox"
 )
 
 func (s *Server) handleGetEmails(w http.ResponseWriter, req *http.Request) {
-	vars := mux.Vars(req)
-	mailboxName := vars["mb"]
+	mailboxName := req.PathValue("mb")
 	emails, err := s.emailService.List(mailboxName)
-
 	if err != nil {
-		Server500(w)
-		log.Printf("Error %v", err)
+		if errors.Is(err, smtpbox.ErrNotFound) {
+			jsonNotFound(w)
+			return
+		}
+		s.log.Error("error listing emails", "mailbox", mailboxName, "error", err)
+		jsonServerError(w)
 		return
 	}
 
-	JSONResponse(w, http.StatusOK, map[string]interface{}{"status": "ok", "result": emails})
+	jsonOK(w, emails)
 }

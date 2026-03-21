@@ -2,44 +2,41 @@ package http
 
 import (
 	"encoding/json"
-	"log"
+	"log/slog"
 	"net/http"
 )
 
-const (
-	responseString404 = "<html><head/><body><h1>Not found</h1></body></html>"
-	responseString500 = "<html><head/><body><h1>System error</h1></body></html>"
-)
-
-func StringResponse(w http.ResponseWriter, status int, contentType string, content string) {
-	w.Header().Add("Content-Type", contentType)
-	w.WriteHeader(status)
-	_, err := w.Write([]byte(content))
-	if err != nil {
-		log.Printf("error writing response %v", err)
-	}
+type apiResponse struct {
+	Result any `json:"result,omitempty"`
 }
 
-func JSONResponse(w http.ResponseWriter, status int, value interface{}) {
+type apiError struct {
+	Error string `json:"error"`
+}
+
+func jsonResponse(w http.ResponseWriter, status int, value any) {
 	payload, err := json.Marshal(value)
 	if err != nil {
-		log.Printf("error writing response %v", err)
-		http.Error(w, "system error", http.StatusInternalServerError)
+		slog.Error("error marshalling response", "error", err)
+		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
 		return
 	}
 
-	w.Header().Add("Content-Type", ApplicationJSON)
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_, err = w.Write(payload)
-	if err != nil {
-		log.Printf("error writing response %v", err)
+	if _, err = w.Write(payload); err != nil {
+		slog.Error("error writing response", "error", err)
 	}
 }
 
-func Response404(w http.ResponseWriter) {
-	StringResponse(w, http.StatusNotFound, TextHTML, responseString404)
+func jsonOK(w http.ResponseWriter, result any) {
+	jsonResponse(w, http.StatusOK, apiResponse{Result: result})
 }
 
-func Server500(w http.ResponseWriter) {
-	StringResponse(w, http.StatusInternalServerError, TextHTML, responseString500)
+func jsonNotFound(w http.ResponseWriter) {
+	jsonResponse(w, http.StatusNotFound, apiError{Error: "not found"})
+}
+
+func jsonServerError(w http.ResponseWriter) {
+	jsonResponse(w, http.StatusInternalServerError, apiError{Error: "internal server error"})
 }
