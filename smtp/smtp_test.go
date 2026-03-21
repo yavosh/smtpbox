@@ -2,7 +2,6 @@ package smtp_test
 
 import (
 	"fmt"
-	"log"
 	"strings"
 	"testing"
 
@@ -21,12 +20,10 @@ func TestSendEmail(t *testing.T) {
 
 	backend := inmem.NewEmailService()
 
-	log.Printf("using local port %d", port)
+	t.Logf("using local port %d", port)
 	localServer := s.NewServer(fmt.Sprintf(":%d", port), "example.net", backend)
 	localServer.Start()
 
-	// Connect to the server, authenticate, set the sender and recipient,
-	// and send the email all in one step.
 	to := []string{"recipient@example.net"}
 	msg := strings.NewReader("To: recipient@example.net\r\n" +
 		"Subject: discount Gophers!\r\n" +
@@ -42,36 +39,47 @@ func TestSendEmail(t *testing.T) {
 		t.Fatalf("could not hello %v", err)
 	}
 
-	// Set up authentication information.
-	//auth := sasl.NewPlainClient("test", "username", "password")
-	//if err := smtpClient.Auth(auth); err != nil {
-	//	t.Fatalf("could not auth %v", err)
-	//}
-
 	if err := smtpClient.SendMail("sender@example.net", to, msg); err != nil {
 		t.Fatalf("could not send %v", err)
 	}
 
-	//err = smtp.SendMail(fmt.Sprintf("localhost:%d", port), nil, "sender@example.org", to, msg)
-	//if err != nil {
-	//	t.Fatalf("could not send email %v", err)
-	//}
-
 	if err := localServer.Stop(); err != nil {
-		t.Fatalf("cloud not stop server %v", err)
+		t.Fatalf("could not stop server %v", err)
 	}
 
 	mb, err := backend.GetMailbox("recipient@example.net")
 	if err != nil {
-		t.Fatalf("error %v", err)
+		t.Fatalf("error getting mailbox: %v", err)
 	}
 
-	fmt.Printf("MB %+v\n", mb)
+	if mb.Addr != "recipient@example.net" {
+		t.Errorf("expected mailbox addr recipient@example.net, got %s", mb.Addr)
+	}
+	if mb.Size != 1 {
+		t.Errorf("expected mailbox size 1, got %d", mb.Size)
+	}
+
+	t.Logf("mailbox: %+v", mb)
 
 	emails, err := backend.List("recipient@example.net")
 	if err != nil {
-		t.Fatalf("error %v", err)
+		t.Fatalf("error listing emails: %v", err)
 	}
 
-	fmt.Printf("emails %+v\n", emails)
+	if len(emails) != 1 {
+		t.Fatalf("expected 1 email, got %d", len(emails))
+	}
+
+	email := emails[0]
+	if email.From != "sender@example.net" {
+		t.Errorf("expected from sender@example.net, got %s", email.From)
+	}
+	if len(email.To) != 1 || email.To[0] != "recipient@example.net" {
+		t.Errorf("expected to [recipient@example.net], got %v", email.To)
+	}
+	if !strings.Contains(email.Body, "This is the email body.") {
+		t.Errorf("expected body to contain 'This is the email body.', got %s", email.Body)
+	}
+
+	t.Logf("email: %+v", email)
 }
