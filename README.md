@@ -1,12 +1,196 @@
-# SMTP BOX
+# smtpbox
 
-A smtp server you can interface with.
+[![Go Tests](https://github.com/yavosh/smtpbox/actions/workflows/go.yml/badge.svg)](https://github.com/yavosh/smtpbox/actions/workflows/go.yml)
 
-Send an email and fetch the email that was sent over a http api.
+A lightweight SMTP server for development and testing. Send emails via SMTP and retrieve them through a REST API.
 
-Use cases 
+Perfect for integration tests that need to verify email delivery — welcome emails, password resets, verification links, etc.
 
-- integration testing emails like (welcome email, password verification etc)
+## Quick Start
 
+### Run with Go
 
-![Go Tests](https://github.com/yavosh/smtpbox/actions/workflows/go.yml/badge.svg)
+```bash
+go build -o bin/smtpbox ./cmd/smtpbox
+./bin/smtpbox
+```
+
+### Run with Docker
+
+```bash
+docker compose up --build
+```
+
+The server starts three services:
+
+| Service | Default Port | Protocol |
+|---------|-------------|----------|
+| HTTP API | 8080 | TCP |
+| SMTP | 1025 | TCP |
+| DNS | 1053 | UDP |
+
+## Configuration
+
+All options can be set via flags or environment variables.
+
+| Flag | Env Var | Default | Description |
+|------|---------|---------|-------------|
+| `-http-port` | `HTTP_PORT` | `8080` | HTTP API listen port |
+| `-smtp-port` | `SMTP_PORT` | `1025` | SMTP server listen port |
+| `-smtp-domain` | `SMTP_DOMAIN` | `localhost` | Domain the SMTP server accepts mail for |
+| `-dns-port` | `DNS_PORT` | `1053` | DNS server listen port |
+| `-dns-domain` | `DNS_DOMAIN` | `localhost` | Domain the DNS server responds for |
+
+```bash
+# Using flags
+./bin/smtpbox -smtp-port 2525 -smtp-domain example.net
+
+# Using environment variables
+SMTP_PORT=2525 SMTP_DOMAIN=example.net ./bin/smtpbox
+```
+
+## Usage
+
+### 1. Send an email via SMTP
+
+Using the included `sendmail` utility:
+
+```bash
+go run ./cmd/sendmail -smtp-port 1025 \
+  -email-from sender@example.net \
+  -email-recipient user@localhost \
+  -email-body "Hello from smtpbox"
+```
+
+Or with `curl` and any SMTP client:
+
+```bash
+# Using swaks
+swaks --to user@localhost --from sender@example.net \
+  --server localhost:1025 --body "Test email"
+
+# Using Python
+python3 -c "
+import smtplib
+from email.message import EmailMessage
+msg = EmailMessage()
+msg['From'] = 'sender@example.net'
+msg['To'] = 'user@localhost'
+msg['Subject'] = 'Test'
+msg.set_content('Hello from smtpbox')
+with smtplib.SMTP('localhost', 1025) as s:
+    s.send_message(msg)
+"
+```
+
+### 2. Retrieve emails via the HTTP API
+
+```bash
+# List all mailboxes
+curl http://localhost:8080/v1/mailboxes
+
+# Get mailbox details
+curl http://localhost:8080/v1/mailboxes/user@localhost
+
+# List emails in a mailbox
+curl http://localhost:8080/v1/mailboxes/user@localhost/items
+```
+
+## API Reference
+
+### `GET /`
+
+Returns service info.
+
+```json
+{"result": {"name": "smtpbox api service"}}
+```
+
+### `GET /health`
+
+Health check endpoint.
+
+```json
+{"result": {"status": "ok"}}
+```
+
+### `GET /v1/mailboxes`
+
+List all mailboxes that have received email.
+
+```json
+{"result": ["user@localhost", "admin@localhost"]}
+```
+
+### `GET /v1/mailboxes/{address}`
+
+Get details for a specific mailbox.
+
+```json
+{"result": {"Addr": "user@localhost", "Size": 2, "CreatedAt": "2024-01-15T10:30:00Z"}}
+```
+
+### `GET /v1/mailboxes/{address}/items`
+
+List all emails in a mailbox.
+
+```json
+{
+  "result": [
+    {
+      "From": "sender@example.net",
+      "To": ["user@localhost"],
+      "Body": "Subject: Test\r\n\r\nHello from smtpbox",
+      "Received": "2024-01-15T10:30:00Z"
+    }
+  ]
+}
+```
+
+### Error Responses
+
+```json
+{"error": "not found"}      // 404
+{"error": "internal server error"}  // 500
+```
+
+## Integration Test Example (Go)
+
+```go
+func TestWelcomeEmail(t *testing.T) {
+    // Start smtpbox
+    backend := inmem.NewEmailService()
+    srv := smtp.NewServer(":1025", "localhost", backend)
+    srv.Start()
+    defer srv.Stop()
+
+    // ... trigger your app to send a welcome email to user@localhost ...
+
+    // Verify the email was sent
+    emails, err := backend.List("user@localhost")
+    if err != nil {
+        t.Fatal(err)
+    }
+    if len(emails) != 1 {
+        t.Fatalf("expected 1 email, got %d", len(emails))
+    }
+    if !strings.Contains(emails[0].Body, "Welcome") {
+        t.Error("expected welcome email")
+    }
+}
+```
+
+## Development
+
+```bash
+make build     # Build binaries
+make test      # Run tests
+make fmt       # Format code
+make lint      # Lint code
+make up        # Run with Docker Compose
+make down      # Stop Docker Compose
+```
+
+## License
+
+MIT
