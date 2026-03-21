@@ -2,8 +2,7 @@ package smtp
 
 import (
 	"errors"
-	"log"
-	"os"
+	"log/slog"
 	"time"
 
 	"github.com/emersion/go-smtp"
@@ -12,28 +11,23 @@ import (
 )
 
 type Server struct {
-	listenAddr        string
-	domain            string
-	additionalDomains []string
-	instance          *smtp.Server
-	emailService      smtpbox.EmailStoreBackend
-	log               smtpbox.Logger
+	listenAddr   string
+	domain       string
+	instance     *smtp.Server
+	emailService smtpbox.EmailStoreBackend
+	log          *slog.Logger
 }
 
-// Option is an option to the server
 type Option func(*Server)
 
-// NewServer is the constructor for the smtp agent
 func NewServer(listenAddr string, domain string, svc smtpbox.EmailStoreBackend, opts ...Option) *Server {
 	s := &Server{
-		listenAddr:        listenAddr,
-		domain:            domain,
-		additionalDomains: make([]string, 0),
-		log:               log.New(os.Stdout, "smtp ", log.LstdFlags),
-		emailService:      svc,
+		listenAddr:   listenAddr,
+		domain:       domain,
+		log:          slog.Default(),
+		emailService: svc,
 	}
 
-	// Loop through each option
 	for _, opt := range opts {
 		opt(s)
 	}
@@ -41,20 +35,13 @@ func NewServer(listenAddr string, domain string, svc smtpbox.EmailStoreBackend, 
 	return s
 }
 
-func WithAdditionalDomain(d string) Option {
-	return func(h *Server) {
-		h.additionalDomains = append(h.additionalDomains, d)
-	}
-}
-
 func (s *Server) Start() {
 	if s.instance != nil {
-		s.log.Fatalf("Can't start a running server")
+		s.log.Error("can't start a running server")
 		return
 	}
 
-	s.log.Printf("Starting smtp server @ %s ", s.listenAddr)
-	s.log.Printf("Using smtp domain %s", s.domain)
+	s.log.Info("starting smtp server", "addr", s.listenAddr, "domain", s.domain)
 
 	instance := smtp.NewServer(&backend{server: s})
 	instance.Addr = s.listenAddr
@@ -72,14 +59,14 @@ func (s *Server) Start() {
 		}
 	}()
 
-	s.log.Printf("Started smtp server @ %s ", s.listenAddr)
+	s.log.Info("started smtp server", "addr", s.listenAddr)
 }
 
 func (s *Server) Stop() error {
 	if s.instance == nil {
 		return errors.New("can't stop, server not running")
 	}
-	s.log.Printf("Stopping smtp server")
+	s.log.Info("stopping smtp server")
 
 	err := s.instance.Close()
 	s.instance = nil

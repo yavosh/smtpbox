@@ -1,19 +1,18 @@
 package smtp
 
 import (
-	"errors"
 	"io"
 	"strings"
 	"time"
 
-	"github.com/yavosh/smtpbox"
-
+	"github.com/emersion/go-sasl"
 	"github.com/emersion/go-smtp"
+
+	"github.com/yavosh/smtpbox"
 )
 
 var _ smtp.Backend = &backend{}
 
-// backend implements SMTP server methods
 type backend struct {
 	server *Server
 }
@@ -21,66 +20,64 @@ type backend struct {
 func (b *backend) NewSession(c *smtp.Conn) (smtp.Session, error) {
 	return &session{
 		server: b.server,
-		rcpt:   make([]string, 0),
 	}, nil
 }
 
-// session is returned after successful login
+// session implements smtp.Session and smtp.AuthSession
 type session struct {
-	server   *Server
-	username string
-	from     string
-	rcpt     []string
+	server *Server
+	from   string
+	rcpt   []string
 }
 
-func (s *session) AuthPlain(username, password string) error {
-	if password != "password" {
-		return errors.New("invalid username or password")
-	}
+func (s *session) AuthMechanisms() []string {
+	return []string{sasl.Plain}
+}
 
-	s.username = username
-	return nil
+func (s *session) Auth(mech string) (sasl.Server, error) {
+	return sasl.NewPlainServer(func(identity, username, password string) error {
+		s.server.log.Info("auth attempt", "username", username)
+		return nil // accept all credentials — dev/testing tool
+	}), nil
 }
 
 func (s *session) Mail(from string, opts *smtp.MailOptions) error {
-	s.server.log.Printf("Mail from: %s %#v", from, opts)
+	s.server.log.Info("mail from", "from", from)
 	s.from = from
 	return nil
 }
 
 func (s *session) Rcpt(to string, opts *smtp.RcptOptions) error {
-	s.server.log.Printf("Rcpt to: %s %#v", to, opts)
+	s.server.log.Info("rcpt to", "to", to)
 	s.rcpt = append(s.rcpt, to)
 	return nil
 }
 
 func (s *session) Data(r io.Reader) error {
-	// Read upto the limit
 	r = io.LimitReader(r, 20480) // 20kb
 
-	if b, err := io.ReadAll(r); err != nil {
+	b, err := io.ReadAll(r)
+	if err != nil {
 		return err
-	} else {
+	}
 
-		// store email
-		eml := smtpbox.Email{
-			From:     s.from,
-			To:       s.rcpt,
-			Body:     string(b),
-			Received: time.Now().UTC(),
+	eml := smtpbox.Email{
+		From:     s.from,
+		To:       s.rcpt,
+		Body:     string(b),
+		Received: time.Now().UTC(),
+	}
+
+	for _, mailbox := range s.rcpt {
+		if !strings.HasSuffix(mailbox, s.server.domain) {
+			s.server.log.Warn("unsupported domain", "mailbox", mailbox)
+			continue
 		}
 
-		for _, mailbox := range s.rcpt {
-			if !strings.HasSuffix(mailbox, s.server.domain) {
-				s.server.log.Printf("unsupported domain: %s", mailbox)
-				continue
-			}
-
-			err := s.server.emailService.Store(mailbox, eml)
-			s.server.log.Printf("Adding email to backend mb:%s email:%+v", mailbox, eml)
-			if err != nil {
-				s.server.log.Printf("Error storing email mb:%s", mailbox)
-			}
+		if err := s.server.emailService.Store(mailbox, eml); err != nil {
+			s.server.log.Error("error storing email", "mailbox", mailbox, "error", err)
+		} else {
+			s.server.log.Info("email stored", "mailbox", mailbox, "from", eml.From)
 		}
 	}
 
@@ -89,10 +86,10 @@ func (s *session) Data(r io.Reader) error {
 
 func (s *session) Reset() {
 	s.from = ""
-	s.rcpt = make([]string, 0)
+	s.rcpt = nil
 }
 
 func (s *session) Logout() error {
-	s.server.log.Print("session ended")
+	s.server.log.Info("session ended")
 	return nil
 }
