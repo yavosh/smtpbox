@@ -56,6 +56,13 @@ All options can be set via flags or environment variables.
 SMTP_PORT=2525 SMTP_DOMAIN=example.net ./bin/smtpbox
 ```
 
+With `-dns-domain nar.cy`, DNS returns MX target `mail.nar.cy.`.
+A queries for `nar.cy.` and `mail.nar.cy.` return `127.0.0.1`.
+Names ignore case and accept a trailing dot.
+Unknown names inside the configured domain return `NXDOMAIN`; unrelated names return `REFUSED`.
+Existing names queried for unsupported record types return an empty successful response.
+DNS supports only `IN` queries.
+
 ## Usage
 
 ### 1. Send an email via SMTP
