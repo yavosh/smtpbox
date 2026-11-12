@@ -47,6 +47,8 @@ All options can be set via flags or environment variables.
 | `-smtp-domain` | `SMTP_DOMAIN` | `localhost` | Domain the SMTP server accepts mail for |
 | `-dns-port` | `DNS_PORT` | `1053` | DNS server listen port |
 | `-dns-domain` | `DNS_DOMAIN` | `localhost` | Domain the DNS server responds for |
+| `-max-messages` | `MAX_MESSAGES` | `1000` | Maximum retained recipient copies across all mailboxes |
+| `-max-memory-bytes` | `MAX_MEMORY_BYTES` | `67108864` | Storage memory budget in bytes |
 
 ```bash
 # Using flags
@@ -62,6 +64,23 @@ Names ignore case and accept a trailing dot.
 Unknown names inside the configured domain return `NXDOMAIN`; unrelated names return `REFUSED`.
 Existing names queried for unsupported record types return an empty successful response.
 DNS supports only `IN` queries.
+
+Messages use a global FIFO ring across all mailboxes.
+The oldest recipient copies are evicted to satisfy either storage limit.
+Each recipient mailbox copy counts separately.
+Mailboxes disappear when their last retained copy is evicted.
+Mailbox `CreatedAt` identifies the oldest retained message and can advance after eviction.
+
+The memory budget includes backend state, preallocated ring slots, owned string bytes, and recipient slice backing storage.
+Received timestamps use UTC, preserving the original instant without retaining caller time zone data.
+Allocator/runtime overhead, active requests, and snapshots retained by callers are outside this budget.
+Total process memory also includes those excluded costs.
+
+Both limits must be positive, and the ring allocation must fit the memory budget.
+Invalid values stop startup before listeners open.
+A message that cannot fit alone is rejected without evicting existing mail.
+Library users can select both limits with `inmem.NewEmailServiceWithLimits(maxMessages, maxMemoryBytes)`.
+Docker Compose reads `MAX_MESSAGES` and `MAX_MEMORY_BYTES` from the host environment.
 
 ## Usage
 
