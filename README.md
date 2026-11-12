@@ -31,6 +31,10 @@ The server starts three services:
 
 SMTP accepts messages up to 1 MiB (1,048,576 bytes), including headers.
 Larger messages receive SMTP error `552` and are not stored.
+Recipient domains must match `-smtp-domain` exactly, ignoring case.
+Other domains receive SMTP error `550` during `RCPT TO`.
+Storage failures return SMTP error `451` instead of reporting successful delivery.
+Earlier recipient copies can remain stored after a later storage failure, so retries can create duplicates.
 
 ## Configuration
 
