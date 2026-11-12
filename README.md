@@ -19,6 +19,21 @@ go build -o bin/smtpbox ./cmd/smtpbox
 
 ### Run with Docker
 
+After the first release, pull the published image from GitHub Container Registry:
+
+```bash
+docker run --rm \
+  -p 127.0.0.1:8080:8080/tcp \
+  -p 127.0.0.1:1025:1025/tcp \
+  -p 127.0.0.1:1053:1053/udp \
+  -e SMTP_DOMAIN=example.net -e DNS_DOMAIN=example.net \
+  ghcr.io/yavosh/smtpbox:latest
+```
+
+The image supports Linux amd64 and arm64. Use a version tag instead of `latest` for reproducible deployments.
+
+To build from the local checkout:
+
 ```bash
 docker compose up --build
 ```
@@ -32,8 +47,8 @@ The server starts three services:
 | DNS | 1053 | UDP |
 
 Native services listen on `127.0.0.1` by default.
-Docker Compose publishes these ports on host loopback and uses `0.0.0.0` inside the container.
-Compose uses the domain `example.net`, so its recipients must use addresses such as `user@example.net`.
+The Docker image listens on `0.0.0.0` inside the container and runs as user `65532`.
+The Docker examples publish ports on host loopback and accept recipients such as `user@example.net`.
 
 SMTP accepts messages up to 1 MiB (1,048,576 bytes), including headers.
 Larger messages receive SMTP error `552` and are not stored.
@@ -41,6 +56,30 @@ Recipient domains must match `-smtp-domain` exactly, ignoring case.
 Other domains receive SMTP error `550` during `RCPT TO`.
 Storage failures return SMTP error `451` instead of reporting successful delivery.
 Earlier recipient copies can remain stored after a later storage failure, so retries can create duplicates.
+
+### Publish a Docker image
+
+Merge changes to `main` and wait for the **Go** workflow to pass.
+Create and push a semantic version tag, such as `v1.2.3`, on that commit.
+The **Release** workflow verifies CI on the tagged commit before publishing `ghcr.io/yavosh/smtpbox`.
+It uses the repository's `GITHUB_TOKEN`; no registry secret is required.
+
+| Git tag | Image tags |
+|---------|------------|
+| `v1.2.3` | `1.2.3`, `1.2`, `latest` |
+| `v1.3.0-rc.1` | `1.3.0-rc.1` |
+
+CI builds the image and checks HTTP, SMTP capture, and UDP DNS through published ports.
+No image exists until the first release tag publishes successfully.
+After that publish, set the package visibility to **Public** in GitHub's package settings.
+See [GitHub's container registry documentation](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry).
+Verify anonymous access with an empty Docker configuration:
+
+```bash
+docker_config=$(mktemp -d)
+docker --config "$docker_config" pull ghcr.io/yavosh/smtpbox:latest
+rmdir "$docker_config"
+```
 
 ## Configuration
 
