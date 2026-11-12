@@ -42,7 +42,8 @@ func TestParseStorageLimits(t *testing.T) {
 func storageTestEnvironment(values map[string]string) []string {
 	var environment []string
 	for _, value := range os.Environ() {
-		if !strings.HasPrefix(value, "MAX_MESSAGES=") && !strings.HasPrefix(value, "MAX_MEMORY_BYTES=") {
+		if !strings.HasPrefix(value, "MAX_MESSAGES=") && !strings.HasPrefix(value, "MAX_MEMORY_BYTES=") &&
+			!strings.HasPrefix(value, "LISTEN_HOST=") && !strings.HasPrefix(value, "HTTP_USERNAME=") && !strings.HasPrefix(value, "HTTP_PASSWORD=") {
 			environment = append(environment, value)
 		}
 	}

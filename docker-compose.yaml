@@ -14,12 +14,15 @@ services:
       SMTP_DOMAIN: "example.net"
       DNS_PORT: 1053
       DNS_DOMAIN: "example.net"
+      LISTEN_HOST: "0.0.0.0"
+      HTTP_USERNAME: "${HTTP_USERNAME-}"
+      HTTP_PASSWORD: "${HTTP_PASSWORD-}"
       MAX_MESSAGES: "${MAX_MESSAGES-1000}"
       MAX_MEMORY_BYTES: "${MAX_MEMORY_BYTES-67108864}"
     ports:
-      - "8080:8080/tcp"
-      - "1025:1025/tcp"
-      - "1053:1053/udp"
+      - "127.0.0.1:8080:8080/tcp"
+      - "127.0.0.1:1025:1025/tcp"
+      - "127.0.0.1:1053:1053/udp"
     networks:
       - dev_net
 

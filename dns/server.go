@@ -1,40 +1,50 @@
 package dns
 
 import (
-	"fmt"
+	"errors"
 	"log/slog"
 	"net"
+	"strconv"
 	"strings"
 
 	"github.com/miekg/dns"
 )
 
 type Server struct {
-	port   int
-	domain string
-	server *dns.Server
-	log    *slog.Logger
+	port       int
+	listenHost string
+	domain     string
+	server     *dns.Server
+	log        *slog.Logger
 }
 
 type Option func(*Server)
 
+func WithListenHost(host string) Option {
+	return func(s *Server) { s.listenHost = host }
+}
+
 func NewServer(port int, domain string, opts ...Option) *Server {
 	s := &Server{
-		port:   port,
-		domain: dns.CanonicalName(domain),
-		log:    slog.Default(),
+		port:       port,
+		listenHost: "127.0.0.1",
+		domain:     dns.CanonicalName(domain),
+		log:        slog.Default(),
 	}
 
 	for _, opt := range opts {
 		opt(s)
 	}
 
-	s.server = &dns.Server{Addr: fmt.Sprintf(":%d", s.port), Net: "udp"}
+	s.server = &dns.Server{Addr: net.JoinHostPort(s.listenHost, strconv.Itoa(s.port)), Net: "udp"}
 	s.server.Handler = s
 	return s
 }
 
 func (s *Server) Start() error {
+	if s.listenHost == "" {
+		return errors.New("listen host must not be empty")
+	}
 	s.log.Info("starting dns server", "port", s.port, "domain", s.domain)
 
 	go func() {

@@ -3,8 +3,8 @@ package main
 import (
 	"errors"
 	"flag"
-	"fmt"
 	"log/slog"
+	"net"
 	"os"
 	"os/signal"
 	"strconv"
@@ -25,6 +25,9 @@ func main() {
 		dnsDomain          string
 		maxMessagesText    string
 		maxMemoryBytesText string
+		listenHost         string
+		httpUsername       string
+		httpPassword       string
 	)
 
 	flag.IntVar(&httpPort, "http-port", envInt("HTTP_PORT", 8080), "listen port for the http server")
@@ -32,10 +35,19 @@ func main() {
 	flag.StringVar(&smtpDomain, "smtp-domain", envString("SMTP_DOMAIN", "localhost"), "domain for smtp server")
 	flag.IntVar(&dnsPort, "dns-port", envInt("DNS_PORT", 1053), "listen port for the dns server")
 	flag.StringVar(&dnsDomain, "dns-domain", envString("DNS_DOMAIN", "localhost"), "domain for dns server")
-	flag.StringVar(&maxMessagesText, "max-messages", envLimit("MAX_MESSAGES", strconv.Itoa(inmem.DefaultMaxMessages)), "maximum retained recipient copies")
-	flag.StringVar(&maxMemoryBytesText, "max-memory-bytes", envLimit("MAX_MEMORY_BYTES", strconv.FormatInt(inmem.DefaultMaxMemoryBytes, 10)), "maximum accounted storage bytes")
+	flag.StringVar(&maxMessagesText, "max-messages", envValue("MAX_MESSAGES", strconv.Itoa(inmem.DefaultMaxMessages)), "maximum retained recipient copies")
+	flag.StringVar(&maxMemoryBytesText, "max-memory-bytes", envValue("MAX_MEMORY_BYTES", strconv.FormatInt(inmem.DefaultMaxMemoryBytes, 10)), "maximum accounted storage bytes")
+	flag.StringVar(&listenHost, "listen-host", envValue("LISTEN_HOST", "127.0.0.1"), "listen host for all servers")
+	flag.StringVar(&httpUsername, "http-username", envString("HTTP_USERNAME", ""), "HTTP Basic authentication username")
+	flag.StringVar(&httpPassword, "http-password", envString("HTTP_PASSWORD", ""), "HTTP Basic authentication password")
+	flag.Lookup("http-username").DefValue = ""
+	flag.Lookup("http-password").DefValue = ""
 	flag.Parse()
 
+	if listenHost == "" {
+		slog.Error("listen host must not be empty")
+		os.Exit(1)
+	}
 	maxMessages, maxMemoryBytes, err := parseStorageLimits(maxMessagesText, maxMemoryBytesText)
 	if err != nil {
 		slog.Error("invalid storage limits", "error", err)
@@ -48,7 +60,7 @@ func main() {
 	}
 
 	smtpServer := smtp.NewServer(
-		fmt.Sprintf(":%d", smtpPort),
+		net.JoinHostPort(listenHost, strconv.Itoa(smtpPort)),
 		smtpDomain,
 		backend,
 	)
@@ -56,11 +68,14 @@ func main() {
 	httpServer := http.NewServer(
 		httpPort,
 		backend,
+		http.WithListenHost(listenHost),
+		http.WithBasicAuth(httpUsername, httpPassword),
 	)
 
 	dnsServer := dns.NewServer(
 		dnsPort,
 		dnsDomain,
+		dns.WithListenHost(listenHost),
 	)
 
 	if err := httpServer.Start(); err != nil {
@@ -107,7 +122,7 @@ func parseStorageLimits(maxMessagesText, maxMemoryBytesText string) (int, int64,
 	return int(maxMessages), maxMemoryBytes, nil
 }
 
-func envLimit(key, fallback string) string {
+func envValue(key, fallback string) string {
 	if value, present := os.LookupEnv(key); present {
 		return value
 	}

@@ -29,6 +29,10 @@ The server starts three services:
 | SMTP | 1025 | TCP |
 | DNS | 1053 | UDP |
 
+Native services listen on `127.0.0.1` by default.
+Docker Compose publishes these ports on host loopback and uses `0.0.0.0` inside the container.
+Compose uses the domain `example.net`, so its recipients must use addresses such as `user@example.net`.
+
 SMTP accepts messages up to 1 MiB (1,048,576 bytes), including headers.
 Larger messages receive SMTP error `552` and are not stored.
 Recipient domains must match `-smtp-domain` exactly, ignoring case.
@@ -42,7 +46,10 @@ All options can be set via flags or environment variables.
 
 | Flag | Env Var | Default | Description |
 |------|---------|---------|-------------|
+| `-listen-host` | `LISTEN_HOST` | `127.0.0.1` | Listen host for HTTP, SMTP, and DNS |
 | `-http-port` | `HTTP_PORT` | `8080` | HTTP API listen port |
+| `-http-username` | `HTTP_USERNAME` | Empty | Optional HTTP Basic authentication username |
+| `-http-password` | `HTTP_PASSWORD` | Empty | Optional HTTP Basic authentication password |
 | `-smtp-port` | `SMTP_PORT` | `1025` | SMTP server listen port |
 | `-smtp-domain` | `SMTP_DOMAIN` | `localhost` | Domain the SMTP server accepts mail for |
 | `-dns-port` | `DNS_PORT` | `1053` | DNS server listen port |
@@ -57,6 +64,18 @@ All options can be set via flags or environment variables.
 # Using environment variables
 SMTP_PORT=2525 SMTP_DOMAIN=example.net ./bin/smtpbox
 ```
+
+Set both HTTP credentials to enable authentication, or leave both empty to disable it.
+Usernames must not contain a colon.
+All HTTP routes, including `/health` and redirects, require the configured credentials.
+Authentication failures return `401` with a fixed Basic challenge and `{"error":"unauthorized"}`.
+Credential defaults are hidden in `-help`.
+HTTP allows five seconds to read request headers.
+Use an HTTPS reverse proxy before exposing authenticated HTTP beyond the local machine.
+SMTP remains a plaintext development capture service and accepts optional test credentials.
+
+Library servers accept `http.WithListenHost(host)`, `http.WithBasicAuth(username, password)`, and `dns.WithListenHost(host)` options.
+HTTP and DNS library servers also default to `127.0.0.1`.
 
 With `-dns-domain nar.cy`, DNS returns MX target `mail.nar.cy.`.
 A queries for `nar.cy.` and `mail.nar.cy.` return `127.0.0.1`.
@@ -187,6 +206,7 @@ List all emails in a mailbox.
 ```json
 {"error": "not found"}      // 404
 {"error": "internal server error"}  // 500
+{"error": "unauthorized"}  // 401 when HTTP authentication is configured
 ```
 
 ## Integration Test Example (Go)
@@ -201,7 +221,7 @@ Changing input slices or snapshots does not change stored messages or other snap
 func TestWelcomeEmail(t *testing.T) {
     // Start smtpbox
     backend := inmem.NewEmailService()
-    srv := smtp.NewServer(":1025", "localhost", backend)
+    srv := smtp.NewServer("127.0.0.1:1025", "localhost", backend)
     if err := srv.Start(); err != nil {
         t.Fatal(err)
     }
