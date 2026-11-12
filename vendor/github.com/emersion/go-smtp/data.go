@@ -71,7 +71,15 @@ func newDataReader(c *Conn) *dataReader {
 func (r *dataReader) Read(b []byte) (n int, err error) {
 	if r.limited {
 		if r.n <= 0 {
-			return 0, ErrDataTooLarge
+			// Allow the terminator after a message exactly at the size limit.
+			var extra [1]byte
+			r.limited = false
+			n, err := r.Read(extra[:])
+			r.limited = true
+			if n > 0 {
+				return 0, ErrDataTooLarge
+			}
+			return 0, err
 		}
 		if int64(len(b)) > r.n {
 			b = b[0:r.n]
