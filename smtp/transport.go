@@ -49,6 +49,14 @@ func (s *session) Mail(from string, opts *smtp.MailOptions) error {
 
 func (s *session) Rcpt(to string, opts *smtp.RcptOptions) error {
 	s.server.log.Info("rcpt to", "to", to)
+	at := strings.LastIndexByte(to, '@')
+	if at <= 0 || at == len(to)-1 || !strings.EqualFold(to[at+1:], s.server.domain) {
+		return &smtp.SMTPError{
+			Code:         550,
+			EnhancedCode: smtp.EnhancedCode{5, 1, 2},
+			Message:      "Recipient domain not accepted",
+		}
+	}
 	s.rcpt = append(s.rcpt, to)
 	return nil
 }
@@ -67,16 +75,15 @@ func (s *session) Data(r io.Reader) error {
 	}
 
 	for _, mailbox := range s.rcpt {
-		if !strings.HasSuffix(mailbox, s.server.domain) {
-			s.server.log.Warn("unsupported domain", "mailbox", mailbox)
-			continue
-		}
-
 		if err := s.server.emailService.Store(mailbox, eml); err != nil {
 			s.server.log.Error("error storing email", "mailbox", mailbox, "error", err)
-		} else {
-			s.server.log.Info("email stored", "mailbox", mailbox, "from", eml.From)
+			return &smtp.SMTPError{
+				Code:         451,
+				EnhancedCode: smtp.EnhancedCode{4, 3, 0},
+				Message:      "Temporary storage failure",
+			}
 		}
+		s.server.log.Info("email stored", "mailbox", mailbox, "from", eml.From)
 	}
 
 	return nil
