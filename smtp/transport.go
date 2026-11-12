@@ -54,8 +54,6 @@ func (s *session) Rcpt(to string, opts *smtp.RcptOptions) error {
 }
 
 func (s *session) Data(r io.Reader) error {
-	r = io.LimitReader(r, 20480) // 20kb
-
 	b, err := io.ReadAll(r)
 	if err != nil {
 		return err
