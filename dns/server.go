@@ -4,16 +4,10 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"strings"
 
 	"github.com/miekg/dns"
 )
-
-var domainsToAddresses = map[string]string{
-	"example.com.":      "127.0.0.1",
-	"example.org.":      "127.0.0.1",
-	"example.net.":      "127.0.0.1",
-	"mail.example.net.": "127.0.0.1",
-}
 
 type Server struct {
 	port   int
@@ -27,7 +21,7 @@ type Option func(*Server)
 func NewServer(port int, domain string, opts ...Option) *Server {
 	s := &Server{
 		port:   port,
-		domain: domain,
+		domain: dns.CanonicalName(domain),
 		log:    slog.Default(),
 	}
 
@@ -61,38 +55,40 @@ func (s Server) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	msg := dns.Msg{}
 	msg.SetReply(r)
 
-	domain := msg.Question[0].Name
-	s.log.Debug("dns query", "name", domain, "type", r.Question[0].Qtype)
+	question := r.Question[0]
+	domain := dns.CanonicalName(question.Name)
+	mailHost := dns.Fqdn("mail." + strings.TrimSuffix(s.domain, "."))
+	s.log.Debug("dns query", "name", question.Name, "type", question.Qtype)
 
-	switch r.Question[0].Qtype {
+	if question.Qclass != dns.ClassINET || !dns.IsSubDomain(s.domain, domain) {
+		msg.Rcode = dns.RcodeRefused
+		_ = w.WriteMsg(&msg)
+		return
+	}
+	msg.Authoritative = true
+	if domain != s.domain && domain != mailHost {
+		msg.Rcode = dns.RcodeNameError
+		_ = w.WriteMsg(&msg)
+		return
+	}
+
+	header := dns.RR_Header{
+		Name:   question.Name,
+		Rrtype: question.Qtype,
+		Class:  dns.ClassINET,
+		Ttl:    60,
+	}
+	switch question.Qtype {
 	case dns.TypeMX:
-		msg.Authoritative = true
-		if domain == s.domain || domain == s.domain+"." {
-			msg.Extra = append(msg.Extra, &dns.MX{
-				Hdr: dns.RR_Header{
-					Name:   domain,
-					Rrtype: dns.TypeMX,
-					Class:  dns.ClassINET,
-					Ttl:    60,
-				},
+		if domain == s.domain {
+			msg.Answer = append(msg.Answer, &dns.MX{
+				Hdr:        header,
 				Preference: 10,
-				Mx:         "mail." + s.domain + ".",
+				Mx:         mailHost,
 			})
 		}
 	case dns.TypeA:
-		msg.Authoritative = true
-		address, ok := domainsToAddresses[domain]
-		if ok {
-			msg.Answer = append(msg.Answer, &dns.A{
-				Hdr: dns.RR_Header{
-					Name:   domain,
-					Rrtype: dns.TypeA,
-					Class:  dns.ClassINET,
-					Ttl:    60,
-				},
-				A: net.ParseIP(address),
-			})
-		}
+		msg.Answer = append(msg.Answer, &dns.A{Hdr: header, A: net.IPv4(127, 0, 0, 1)})
 	}
 
 	_ = w.WriteMsg(&msg)
