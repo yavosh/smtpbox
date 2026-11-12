@@ -14,14 +14,16 @@
 
 ## Build, test, and development commands
 
-Use Go 1.27. Install `staticcheck` separately before running lint checks.
+Use Go 1.27.4 and `golangci-lint` v2.15.0.
+Install the tool with `go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0`.
 
 - `make build`: builds `bin/smtpbox` and `bin/sendmail`.
 - `go run ./cmd/smtpbox`: starts local servers on HTTP 8080, SMTP 1025, and DNS 1053.
 - `make test`: runs all packages with the race detector.
 - `make cover`: writes race-enabled coverage results to `coverage.out`.
-- `make fmt`: formats Go packages.
-- `make lint`: runs `go vet` and `staticcheck`.
+- `make fmt`: formats Go packages and groups imports with `goimports`.
+- `make fmt-check`: checks formatting without changing files.
+- `make lint`: runs the analyzers in `.golangci.yml`, including `go vet` and `staticcheck`.
 - `docker compose up --build`: builds and starts the container services.
 
 ## Coding style and naming conventions
@@ -37,8 +39,8 @@ Before writing or reviewing Go code, read [Go style references](docs/code-style.
 
 ## Testing guidelines
 
-Allocate free local ports and keep tests independent of external mail services.
-No coverage percentage is enforced. CI runs `go build -v ./...` and `go test -v ./...`.
+Use loopback port `0` and retain listeners until cleanup. Keep tests independent of external mail services.
+No coverage percentage is enforced. CI builds all packages, runs race tests, and checks lint and formatting.
 
 ## Commit and pull request guidelines
 

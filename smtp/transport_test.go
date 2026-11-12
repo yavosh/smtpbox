@@ -2,7 +2,6 @@ package smtp
 
 import (
 	"errors"
-	"net"
 	"strconv"
 	"strings"
 	"testing"
@@ -14,18 +13,9 @@ import (
 )
 
 func TestSMTPMessageSize(t *testing.T) {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	address := listener.Addr().String()
-	if err := listener.Close(); err != nil {
-		t.Fatal(err)
-	}
-
 	store := inmem.NewEmailService()
-	server := NewServer(address, "nar.cy", store)
-	if err := server.Start(); err != nil {
+	server := NewServer("127.0.0.1:0", "nar.cy", store)
+	if err := server.StartContext(smtpTestContext(t)); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
@@ -34,11 +24,7 @@ func TestSMTPMessageSize(t *testing.T) {
 		}
 	})
 
-	client, err := gosmtp.Dial(address)
-	if err != nil {
-		t.Fatalf("dial SMTP server: %v", err)
-	}
-	t.Cleanup(func() { client.Close() })
+	client := newSMTPTestClient(t, server.Addr().String())
 
 	const maxBytes = 1024 * 1024
 	if ok, size := client.Extension("SIZE"); !ok || size != strconv.Itoa(maxBytes) {
@@ -69,8 +55,7 @@ func TestSMTPMessageSize(t *testing.T) {
 			recipient := tc.name + "@nar.cy"
 			err := client.SendMail("sender@nar.cy", []string{recipient}, strings.NewReader(message))
 			if tc.size > maxBytes {
-				var smtpErr *gosmtp.SMTPError
-				if !errors.As(err, &smtpErr) || smtpErr.Code != 552 {
+				if smtpErr, ok := errors.AsType[*gosmtp.SMTPError](err); !ok || smtpErr.Code != 552 {
 					t.Fatalf("expected SMTP 552, got %v", err)
 				}
 				if _, err := store.List(recipient); !errors.Is(err, smtpbox.ErrNotFound) {

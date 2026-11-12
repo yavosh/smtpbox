@@ -10,6 +10,8 @@ Perfect for integration tests that need to verify email delivery — welcome ema
 
 ### Run with Go
 
+Use Go 1.27.4 or later.
+
 ```bash
 go build -o bin/smtpbox ./cmd/smtpbox
 ./bin/smtpbox
@@ -76,6 +78,10 @@ SMTP remains a plaintext development capture service and accepts optional test c
 
 Library servers accept `http.WithListenHost(host)`, `http.WithBasicAuth(username, password)`, and `dns.WithListenHost(host)` options.
 HTTP and DNS library servers also default to `127.0.0.1`.
+All library servers provide `StartContext(ctx)` for startup cancellation and `Addr()` for the bound address.
+The startup context does not control the running server; call `Stop()` to close its listeners and connections.
+DNS startup reports bind failures before returning.
+The command releases started servers when startup fails or a termination signal arrives.
 
 With `-dns-domain nar.cy`, DNS returns MX target `mail.nar.cy.`.
 A queries for `nar.cy.` and `mail.nar.cy.` return `127.0.0.1`.
@@ -108,6 +114,12 @@ Docker Compose reads `MAX_MESSAGES` and `MAX_MEMORY_BYTES` from the host environ
 The included `sendmail` utility uses plaintext SMTP for local development.
 Optional `-sasl-username` and `-sasl-password` flags send test credentials without encryption.
 SMTPBox accepts any test credentials.
+`-smtp-host` accepts hostnames and IPv6 literals, such as `::1`.
+Sending stops on cancellation or after twelve minutes.
+
+By default, `-email-body` is sent unchanged as a raw message.
+Set `-email-subject` to insert or replace its Subject header; other headers and body bytes are preserved.
+Subjects cannot contain CR or LF characters.
 
 ```bash
 go run ./cmd/sendmail -smtp-port 1025 \
@@ -249,14 +261,23 @@ The vendored SMTP library corrects message size boundaries, malformed domains, a
 Preserve these corrections when updating dependencies, and build with vendored dependencies.
 The `-mod=mod` build option bypasses these corrections.
 
+Formatting and linting use golangci-lint v2.15.0:
+
+```bash
+go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0
+```
+
 ```bash
 make build     # Build binaries
 make test      # Run tests
 make fmt       # Format code
+make fmt-check # Check formatting without changes
 make lint      # Lint code
 make up        # Run with Docker Compose
 make down      # Stop Docker Compose
 ```
+
+CI runs the build, race tests, lint checks, and formatting checks with the same pinned tool versions.
 
 ## License
 

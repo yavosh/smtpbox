@@ -41,8 +41,10 @@ and it is where a stale habit survives longest.
 | [`modernize` analyzer](https://pkg.go.dev/golang.org/x/tools/gopls/internal/analysis/modernize) | The Go team's implementation of the same idea. Available through `golangci-lint`. |
 | [`go fix`](https://go.dev/cmd/go#hdr-Update_packages_to_use_new_APIs) | Go 1.27 ships the modernizers in the toolchain, including `embedlit`, `errorsastype`, and `atomictypes`. `go fix -stringsbuilder=false ./...` applies them in place while preserving short string concatenations. |
 
-`modernize` and `errorlint` cover many of these idioms.
-The current `make lint` runs `go vet` and `staticcheck`.
+`make lint` runs the analyzers in `.golangci.yml` with `golangci-lint` v2.15.0.
+These include `modernize`, `errorlint`, `go vet`, and `staticcheck`.
+`noctx` checks context-aware I/O, and `forbidigo` checks logging helpers.
+`make fmt` groups imports with `goimports`; `make fmt-check` checks the same formatting in CI.
 Additional rules live in [AGENTS.md](../AGENTS.md) under **Coding style and naming conventions**.
 
 ### Rules smtpbox rejects
@@ -83,7 +85,7 @@ for each.
 | Handlers are closures over their dependencies, `func handleX(deps) http.Handler`, with per-handler setup done once outside the returned `HandlerFunc`. | Closures or methods on a handler type are both fine. The point worth keeping is that per-handler setup happens once at construction, not per request. |
 | Request and response types are declared inside the handler, not shared package-wide, so one endpoint's shape cannot drift into another's. | Adopt. |
 | A small `Validator` interface plus generic `encode` and `decode` helpers, instead of a framework. | Matches smtpbox's stdlib-preferred rule. |
-| Tests start the real server and poll a readiness endpoint, so they exercise routing and middleware, not just the handler function. | Prefer `httptest.NewTestServer` over calling a handler directly when the route, method guard, or middleware is part of what you test. Its in-memory network also works inside a `synctest` bubble. |
+| Tests start the real server and poll a readiness endpoint, so they exercise routing and middleware, not just the handler function. | Use `httptest.NewServer` when testing routes, method guards, or middleware. Use free local ports and bounded request contexts. |
 | `sync.Once` for expensive lazy handler initialization. | Use `sync.OnceValue` when a handler needs costly setup that must not run at boot. |
 
 ## Tier 5: examples and other organization guides

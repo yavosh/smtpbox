@@ -1,6 +1,7 @@
 package smtp
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -30,7 +31,7 @@ func NewServer(listenAddr string, domain string, svc smtpbox.EmailStoreBackend, 
 	s := &Server{
 		listenAddr:   listenAddr,
 		domain:       domain,
-		log:          slog.Default(),
+		log:          clogSMTP(),
 		emailService: svc,
 	}
 
@@ -42,9 +43,17 @@ func NewServer(listenAddr string, domain string, svc smtpbox.EmailStoreBackend, 
 }
 
 func (s *Server) Start() error {
+	return s.StartContext(context.Background())
+}
+
+// StartContext binds the listener before returning. The context controls startup only.
+func (s *Server) StartContext(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if s.instance != nil {
 		return errors.New("can't start a running server")
 	}
@@ -59,8 +68,12 @@ func (s *Server) Start() error {
 	instance.MaxMessageBytes = 1024 * 1024
 	instance.MaxRecipients = 50
 	instance.AllowInsecureAuth = true
-	listener, err := net.Listen("tcp", s.listenAddr)
+	listener, err := (&net.ListenConfig{}).Listen(ctx, "tcp", s.listenAddr)
 	if err != nil {
+		return fmt.Errorf("smtp listen: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		_ = listener.Close()
 		return fmt.Errorf("smtp listen: %w", err)
 	}
 
@@ -79,6 +92,16 @@ func (s *Server) Start() error {
 
 	s.log.Info("started smtp server", "addr", s.listenAddr)
 	return nil
+}
+
+// Addr returns the bound listener address, or nil when the server is stopped.
+func (s *Server) Addr() net.Addr {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.listener == nil {
+		return nil
+	}
+	return s.listener.Addr()
 }
 
 func (s *Server) Stop() error {

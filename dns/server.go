@@ -1,21 +1,26 @@
 package dns
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/miekg/dns"
 )
 
 type Server struct {
+	mu         sync.Mutex
 	port       int
 	listenHost string
 	domain     string
 	server     *dns.Server
 	log        *slog.Logger
+	done       chan error
 }
 
 type Option func(*Server)
@@ -29,7 +34,7 @@ func NewServer(port int, domain string, opts ...Option) *Server {
 		port:       port,
 		listenHost: "127.0.0.1",
 		domain:     dns.CanonicalName(domain),
-		log:        slog.Default(),
+		log:        clogDNS(),
 	}
 
 	for _, opt := range opts {
@@ -42,26 +47,97 @@ func NewServer(port int, domain string, opts ...Option) *Server {
 }
 
 func (s *Server) Start() error {
+	return s.StartContext(context.Background())
+}
+
+// StartContext binds the UDP listener and waits until the server is ready.
+// The context limits startup; Stop controls the running server.
+func (s *Server) StartContext(ctx context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("start dns server: %w", err)
+	}
+	if s.done != nil {
+		return errors.New("dns server already started")
+	}
 	if s.listenHost == "" {
 		return errors.New("listen host must not be empty")
 	}
+	address := net.JoinHostPort(s.listenHost, strconv.Itoa(s.port))
+	packet, err := (&net.ListenConfig{}).ListenPacket(ctx, "udp", address)
+	if err != nil {
+		return fmt.Errorf("listen for dns: %w", err)
+	}
+	started := make(chan struct{})
+	s.server = &dns.Server{
+		Addr:              address,
+		Net:               "udp",
+		PacketConn:        packet,
+		Handler:           s,
+		NotifyStartedFunc: func() { close(started) },
+	}
+	s.done = make(chan error, 1)
+	server, done := s.server, s.done
 	s.log.Info("starting dns server", "port", s.port, "domain", s.domain)
 
-	go func() {
-		if err := s.server.ListenAndServe(); err != nil {
-			s.log.Error("failed to start dns listener", "error", err)
-		}
-	}()
+	go func() { done <- server.ActivateAndServe() }()
 
-	return nil
+	select {
+	case <-started:
+		if err := ctx.Err(); err != nil {
+			_ = server.Shutdown()
+			serveErr := <-done
+			s.done = nil
+			return fmt.Errorf("start dns server: %w", errors.Join(err, serveErr))
+		}
+		return nil
+	case err := <-done:
+		_ = packet.Close()
+		s.done = nil
+		return fmt.Errorf("start dns server: %w", err)
+	case <-ctx.Done():
+		_ = packet.Close()
+		serveErr := <-done
+		_ = server.Shutdown()
+		s.done = nil
+		return fmt.Errorf("start dns server: %w", errors.Join(ctx.Err(), serveErr))
+	}
 }
 
 func (s *Server) Stop() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.done == nil {
+		return s.server.Shutdown()
+	}
 	s.log.Info("stopping dns server", "port", s.port)
-	return s.server.Shutdown()
+	err := s.server.Shutdown()
+	serveErr := <-s.done
+	s.done = nil
+	if err != nil {
+		return fmt.Errorf("stop dns server: %w", err)
+	}
+	if serveErr != nil {
+		return fmt.Errorf("serve dns: %w", serveErr)
+	}
+	return nil
 }
 
-func (s Server) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
+// Addr returns the bound UDP address, or nil when the server is stopped.
+func (s *Server) Addr() net.Addr {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.done == nil {
+		return nil
+	}
+	return s.server.PacketConn.LocalAddr()
+}
+
+func (s *Server) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	msg := dns.Msg{}
 	msg.SetReply(r)
 

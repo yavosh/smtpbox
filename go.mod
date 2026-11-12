@@ -1,12 +1,11 @@
 module github.com/yavosh/smtpbox
 
-go 1.27
+go 1.27.4
 
 require (
 	github.com/emersion/go-sasl v0.0.0-20241020182733-b788ff22d5a6
 	github.com/emersion/go-smtp v0.24.0
 	github.com/miekg/dns v1.1.72
-	github.com/phayes/freeport v0.0.0-20220201140144-74d24b5ae9f5
 )
 
 require (

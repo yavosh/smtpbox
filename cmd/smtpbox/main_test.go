@@ -1,22 +1,17 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
-	gosmtp "github.com/emersion/go-smtp"
 	"github.com/yavosh/smtpbox"
 )
 
@@ -55,7 +50,9 @@ func storageTestEnvironment(values map[string]string) []string {
 
 func TestStorageLimitCLI(t *testing.T) {
 	binary := filepath.Join(t.TempDir(), "smtpbox")
-	if output, err := exec.Command("go", "build", "-mod=vendor", "-o", binary, ".").CombinedOutput(); err != nil {
+	buildCtx, cancelBuild := context.WithTimeout(t.Context(), time.Minute)
+	t.Cleanup(cancelBuild)
+	if output, err := exec.CommandContext(buildCtx, "go", "build", "-mod=vendor", "-o", binary, ".").CombinedOutput(); err != nil {
 		t.Fatalf("build smtpbox: %v\n%s", err, output)
 	}
 	t.Run("invalid-startup", func(t *testing.T) {
@@ -78,7 +75,7 @@ func TestStorageLimitCLI(t *testing.T) {
 			{"empty-budget-env", nil, map[string]string{"MAX_MEMORY_BYTES": ""}},
 		} {
 			t.Run(tc.name, func(t *testing.T) {
-				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 				defer cancel()
 				args := append([]string{"-http-port", "0", "-smtp-port", "0", "-dns-port", "0"}, tc.flags...)
 				cmd := exec.CommandContext(ctx, binary, args...)
@@ -106,56 +103,7 @@ func TestStorageLimitCLI(t *testing.T) {
 		{"memory-ceiling", []string{"-max-messages", "3", "-max-memory-bytes", "1000"}, nil, 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			httpListener, err := net.Listen("tcp", "127.0.0.1:0")
-			if err != nil {
-				t.Fatal(err)
-			}
-			smtpListener, err := net.Listen("tcp", "127.0.0.1:0")
-			if err != nil {
-				httpListener.Close()
-				t.Fatal(err)
-			}
-			httpPort := httpListener.Addr().(*net.TCPAddr).Port
-			smtpPort := smtpListener.Addr().(*net.TCPAddr).Port
-			httpListener.Close()
-			smtpListener.Close()
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			t.Cleanup(cancel)
-			args := []string{"-http-port", strconv.Itoa(httpPort), "-smtp-port", strconv.Itoa(smtpPort), "-dns-port", "0", "-smtp-domain", "nar.cy", "-dns-domain", "nar.cy"}
-			args = append(args, tc.flags...)
-			cmd := exec.CommandContext(ctx, binary, args...)
-			cmd.Env = storageTestEnvironment(tc.environment)
-			var output bytes.Buffer
-			cmd.Stdout = &output
-			cmd.Stderr = &output
-			if err := cmd.Start(); err != nil {
-				t.Fatal(err)
-			}
-			t.Cleanup(func() {
-				cmd.Process.Signal(syscall.SIGTERM)
-				if err := cmd.Wait(); err != nil {
-					t.Errorf("smtpbox exit: %v\n%s", err, output.String())
-				}
-			})
-			address := net.JoinHostPort("127.0.0.1", strconv.Itoa(smtpPort))
-			var client *gosmtp.Client
-			deadline := time.Now().Add(5 * time.Second)
-			for {
-				client, err = gosmtp.Dial(address)
-				if err == nil {
-					client.CommandTimeout = time.Second
-					client.SubmissionTimeout = time.Second
-					if err = client.Noop(); err == nil {
-						break
-					}
-					client.Close()
-				}
-				if time.Now().After(deadline) {
-					t.Fatalf("wait for smtpbox: %v", err)
-				}
-				time.Sleep(10 * time.Millisecond)
-			}
-			t.Cleanup(func() { client.Close() })
+			base, client := startNetworkApp(t, tc.flags, tc.environment)
 			var latest string
 			for i := range 3 {
 				latest = fmt.Sprint(i) + strings.Repeat("x", 397) + "\r\n"
@@ -163,7 +111,11 @@ func TestStorageLimitCLI(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			response, err := (&http.Client{Timeout: time.Second}).Get(fmt.Sprintf("http://127.0.0.1:%d/v1/mailboxes/recipient@nar.cy/items", httpPort))
+			request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, base+"/v1/mailboxes/recipient@nar.cy/items", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			response, err := (&http.Client{Timeout: time.Second}).Do(request)
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -21,11 +21,11 @@ func WithBasicAuth(username, password string) Option {
 			return
 		}
 		if username == "" || password == "" {
-			s.authErr = errors.New("HTTP username and password must both be set")
+			s.authErr = errors.New("http username and password must both be set")
 			return
 		}
 		if strings.Contains(username, ":") {
-			s.authErr = errors.New("HTTP username must not contain a colon")
+			s.authErr = errors.New("http username must not contain a colon")
 			return
 		}
 		s.auth = &basicAuth{

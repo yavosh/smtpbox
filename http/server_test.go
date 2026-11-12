@@ -3,6 +3,7 @@ package http
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/base64"
 	"io"
 	"log/slog"
@@ -55,6 +56,13 @@ func TestHTTPAuthenticationProtectsAllRoutes(t *testing.T) {
 		t.Fatal(err)
 	}
 	server := NewServer(0, store, WithBasicAuth(username, password))
+	testServer := httptest.NewServer(server.server.Handler)
+	t.Cleanup(testServer.Close)
+	client := testServer.Client()
+	client.Timeout = time.Second
+	client.CheckRedirect = func(*stdhttp.Request, []*stdhttp.Request) error {
+		return stdhttp.ErrUseLastResponse
+	}
 	for _, route := range []struct {
 		method string
 		path   string
@@ -87,30 +95,46 @@ func TestHTTPAuthenticationProtectsAllRoutes(t *testing.T) {
 			{"correct", username, password, "", true},
 		} {
 			t.Run(route.method+route.path+"/"+auth.name, func(t *testing.T) {
-				request := httptest.NewRequest(route.method, route.path, nil)
+				ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+				defer cancel()
+				request, err := stdhttp.NewRequestWithContext(ctx, route.method, testServer.URL+route.path, nil)
+				if err != nil {
+					t.Fatal(err)
+				}
 				if auth.username != "" || auth.password != "" {
 					request.SetBasicAuth(auth.username, auth.password)
 				} else if auth.header != "" {
 					request.Header.Set("Authorization", auth.header)
 				}
-				response := httptest.NewRecorder()
-				server.server.Handler.ServeHTTP(response, request)
+				response, err := client.Do(request)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer response.Body.Close()
+				body, err := io.ReadAll(response.Body)
+				if err != nil {
+					t.Fatal(err)
+				}
 				wantStatus := stdhttp.StatusUnauthorized
 				if auth.valid {
 					wantStatus = route.status
 				}
-				if response.Code != wantStatus {
-					t.Errorf("expected HTTP %d, got %d", wantStatus, response.Code)
+				if response.StatusCode != wantStatus {
+					t.Errorf("expected HTTP %d, got %d", wantStatus, response.StatusCode)
 				}
 				if !auth.valid {
-					if response.Body.String() != `{"error":"unauthorized"}` || response.Header().Get("Content-Type") != "application/json" {
+					wantBody := `{"error":"unauthorized"}`
+					if route.method == stdhttp.MethodHead {
+						wantBody = ""
+					}
+					if string(body) != wantBody || response.Header.Get("Content-Type") != "application/json" {
 						t.Error("authentication failure must return the fixed JSON response")
 					}
-					if response.Header().Get("WWW-Authenticate") != `Basic realm="smtpbox"` || response.Header().Get("Location") != "" {
+					if response.Header.Get("WWW-Authenticate") != `Basic realm="smtpbox"` || response.Header.Get("Location") != "" {
 						t.Error("authentication must precede redirects and use the fixed challenge")
 					}
 				}
-				if strings.Contains(response.Body.String(), username) || strings.Contains(response.Body.String(), password) {
+				if strings.Contains(string(body), username) || strings.Contains(string(body), password) {
 					t.Error("response exposed authentication configuration")
 				}
 			})
@@ -121,10 +145,20 @@ func TestHTTPAuthenticationProtectsAllRoutes(t *testing.T) {
 func TestHTTPAuthenticationDisabled(t *testing.T) {
 	for _, options := range [][]Option{nil, {WithBasicAuth("", "")}} {
 		server := NewServer(0, inmem.NewEmailService(), options...)
-		request := httptest.NewRequest(stdhttp.MethodGet, "/health", nil)
-		response := httptest.NewRecorder()
-		server.server.Handler.ServeHTTP(response, request)
-		if response.Code != stdhttp.StatusOK || response.Header().Get("WWW-Authenticate") != "" {
+		testServer := httptest.NewServer(server.server.Handler)
+		t.Cleanup(testServer.Close)
+		ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+		defer cancel()
+		request, err := stdhttp.NewRequestWithContext(ctx, stdhttp.MethodGet, testServer.URL+"/health", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response, err := testServer.Client().Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response.Body.Close()
+		if response.StatusCode != stdhttp.StatusOK || response.Header.Get("WWW-Authenticate") != "" {
 			t.Error("default local API must remain available without authentication")
 		}
 	}
@@ -132,18 +166,28 @@ func TestHTTPAuthenticationDisabled(t *testing.T) {
 
 func TestHTTPAuthenticationAllowsPasswordColon(t *testing.T) {
 	server := NewServer(0, inmem.NewEmailService(), WithBasicAuth("fixture-reader", "fixture:password"))
-	request := httptest.NewRequest(stdhttp.MethodGet, "/health", nil)
+	testServer := httptest.NewServer(server.server.Handler)
+	t.Cleanup(testServer.Close)
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	request, err := stdhttp.NewRequestWithContext(ctx, stdhttp.MethodGet, testServer.URL+"/health", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	request.SetBasicAuth("fixture-reader", "fixture:password")
-	response := httptest.NewRecorder()
-	server.server.Handler.ServeHTTP(response, request)
-	if response.Code != stdhttp.StatusOK {
-		t.Errorf("password containing a colon was rejected: HTTP %d", response.Code)
+	response, err := testServer.Client().Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if response.StatusCode != stdhttp.StatusOK {
+		t.Errorf("password containing a colon was rejected: HTTP %d", response.StatusCode)
 	}
 }
 
 func TestHTTPRejectsInvalidCredentialsBeforeBinding(t *testing.T) {
 	for _, credentials := range [][2]string{{"fixture-reader", ""}, {"", "fixture-password-value"}, {"bad:reader", "fixture-password-value"}} {
-		listener, err := net.Listen("tcp", "127.0.0.1:0")
+		listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -165,7 +209,7 @@ func TestHTTPRejectsInvalidCredentialsBeforeBinding(t *testing.T) {
 		if log.Len() != 0 {
 			t.Error("invalid authentication configuration reached startup logging")
 		}
-		listener, err = net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
+		listener, err = (&net.ListenConfig{}).Listen(t.Context(), "tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
 		if err != nil {
 			t.Fatalf("invalid authentication configuration bound the listener: %v", err)
 		}
@@ -174,14 +218,10 @@ func TestHTTPRejectsInvalidCredentialsBeforeBinding(t *testing.T) {
 }
 
 func TestHTTPLocalAuthenticatedServe(t *testing.T) {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	port := listener.Addr().(*net.TCPAddr).Port
-	listener.Close()
-	server := NewServer(port, inmem.NewEmailService(), WithBasicAuth("fixture-reader", "fixture-password-value"))
-	if err := server.Start(); err != nil {
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	server := NewServer(0, inmem.NewEmailService(), WithBasicAuth("fixture-reader", "fixture-password-value"))
+	if err := server.StartContext(ctx); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
@@ -190,8 +230,9 @@ func TestHTTPLocalAuthenticatedServe(t *testing.T) {
 		}
 	})
 	client := &stdhttp.Client{Timeout: time.Second}
+	t.Cleanup(client.CloseIdleConnections)
 	for _, authenticated := range []bool{false, true} {
-		request, err := stdhttp.NewRequest(stdhttp.MethodGet, "http://"+server.server.Addr+"/health", nil)
+		request, err := stdhttp.NewRequestWithContext(ctx, stdhttp.MethodGet, "http://"+server.Addr().String()+"/health", nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -212,7 +253,7 @@ func TestHTTPLocalAuthenticatedServe(t *testing.T) {
 			t.Errorf("expected HTTP %d, got %d", wantStatus, response.StatusCode)
 		}
 	}
-	conn, err := net.DialTimeout("tcp", server.server.Addr, time.Second)
+	conn, err := (&net.Dialer{Timeout: time.Second}).DialContext(ctx, "tcp", server.Addr().String())
 	if err != nil {
 		t.Fatal(err)
 	}
