@@ -174,6 +174,10 @@ List all emails in a mailbox.
 
 `Start` returns after the SMTP listener is ready and reports unavailable listen addresses as errors.
 
+The in-memory backend copies recipient slices when storing messages.
+Each `List` call returns an independent snapshot, including recipient slices.
+Changing input slices or snapshots does not change stored messages or other snapshots.
+
 ```go
 func TestWelcomeEmail(t *testing.T) {
     // Start smtpbox

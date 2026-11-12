@@ -2,6 +2,7 @@ package inmem
 
 import (
 	"log/slog"
+	"slices"
 	"sync"
 
 	"github.com/yavosh/smtpbox"
@@ -29,6 +30,7 @@ func (s *EmailBackend) Store(mailbox string, eml smtpbox.Email) error {
 		s.store[mailbox] = []smtpbox.Email{}
 	}
 
+	eml.To = slices.Clone(eml.To)
 	s.store[mailbox] = append(s.store[mailbox], eml)
 	return nil
 }
@@ -70,5 +72,9 @@ func (s *EmailBackend) List(mailbox string) ([]smtpbox.Email, error) {
 		return []smtpbox.Email{}, smtpbox.ErrNotFound
 	}
 
-	return emails, nil
+	list := slices.Clone(emails)
+	for i := range list {
+		list[i].To = slices.Clone(list[i].To)
+	}
+	return list, nil
 }
