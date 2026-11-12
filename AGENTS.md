@@ -26,18 +26,18 @@ Use Go 1.27. Install `staticcheck` separately before running lint checks.
 
 ## Coding style and naming conventions
 
-Use standard Go formatting with tabs; run `make fmt` before submitting Go changes.
-Keep package names lowercase. Use mixedCaps for private identifiers and MixedCaps for exported identifiers.
-Follow existing constructors such as `NewServer` and `NewEmailService`.
-Use `log/slog` for server logging. Keep protocol logic in its package and shared storage contracts in the root package.
-Limit changes to the requested scope.
+Before writing or reviewing Go code, read [Go style references](docs/code-style.md).
+
+- Preserve existing public packages and shared backend contracts. Put implementation-only packages under `internal/`.
+- Group imports: standard library, third-party dependencies, then `github.com/yavosh/smtpbox`.
+- Use `log/slog` through a package-local `clog*` helper. Every log line includes a `component` attribute naming the subsystem.
+- Keep comments to two or three lines. Explain the non-obvious behavior.
+- Do not panic outside `main` or `init`.
+- Limit changes to the requested scope.
 
 ## Testing guidelines
 
-Use Go's standard `testing` package, `*_test.go` files, and `TestName` functions.
-Follow `TestSendEmail`: allocate a free local port, start a server, send mail, and inspect the backend.
-Stop servers during cleanup. Keep automated tests independent of external mail services.
-`TestSendSample` is skipped because it requires a running server.
+Allocate free local ports and keep tests independent of external mail services.
 No coverage percentage is enforced. CI runs `go build -v ./...` and `go test -v ./...`.
 
 ## Commit and pull request guidelines
