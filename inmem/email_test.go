@@ -106,7 +106,7 @@ func TestSnapshotAppendCannotChangeStoredEmails(t *testing.T) {
 			if err := store.Store("recipient@nar.cy", latest); err != nil {
 				t.Fatal(err)
 			}
-			snapshot = append(snapshot, smtpbox.Email{Body: "caller append"})
+			_ = append(snapshot, smtpbox.Email{Body: "caller append"})
 			emails, err := store.List("recipient@nar.cy")
 			if err != nil || len(emails) != count+1 || !reflect.DeepEqual(emails[count], latest) {
 				t.Errorf("snapshot append changed later stored email: %v, %v", emails, err)
@@ -151,18 +151,15 @@ func TestConcurrentSnapshotMutation(t *testing.T) {
 	}
 	start := make(chan struct{})
 	var wg sync.WaitGroup
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		<-start
 		for range 1000 {
 			snapshot[0].Body = "caller mutation"
 			snapshot[0].To[0] = "changed@nar.cy"
 			snapshot[0].Received = time.Time{}
 		}
-	}()
-	go func() {
-		defer wg.Done()
+	})
+	wg.Go(func() {
 		<-start
 		for range 1000 {
 			emails, err := store.List("recipient@nar.cy")
@@ -171,7 +168,7 @@ func TestConcurrentSnapshotMutation(t *testing.T) {
 				return
 			}
 		}
-	}()
+	})
 	close(start)
 	wg.Wait()
 }

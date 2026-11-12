@@ -2,7 +2,6 @@ package http
 
 import (
 	"encoding/json"
-	"log/slog"
 	"net/http"
 )
 
@@ -17,7 +16,7 @@ type apiError struct {
 func jsonResponse(w http.ResponseWriter, status int, value any) {
 	payload, err := json.Marshal(value)
 	if err != nil {
-		slog.Error("error marshalling response", "error", err)
+		clogHTTP().Error("error marshaling response", "error", err)
 		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
 		return
 	}
@@ -25,7 +24,7 @@ func jsonResponse(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	if _, err = w.Write(payload); err != nil {
-		slog.Error("error writing response", "error", err)
+		clogHTTP().Error("error writing response", "error", err)
 	}
 }
 

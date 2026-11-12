@@ -14,31 +14,33 @@
 
 ## Build, test, and development commands
 
-Use Go 1.27. Install `staticcheck` separately before running lint checks.
+Use Go 1.27.4 and `golangci-lint` v2.15.0.
+Install the tool with `go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0`.
 
 - `make build`: builds `bin/smtpbox` and `bin/sendmail`.
 - `go run ./cmd/smtpbox`: starts local servers on HTTP 8080, SMTP 1025, and DNS 1053.
 - `make test`: runs all packages with the race detector.
 - `make cover`: writes race-enabled coverage results to `coverage.out`.
-- `make fmt`: formats Go packages.
-- `make lint`: runs `go vet` and `staticcheck`.
+- `make fmt`: formats Go packages and groups imports with `goimports`.
+- `make fmt-check`: checks formatting without changing files.
+- `make lint`: runs the analyzers in `.golangci.yml`, including `go vet` and `staticcheck`.
 - `docker compose up --build`: builds and starts the container services.
 
 ## Coding style and naming conventions
 
-Use standard Go formatting with tabs; run `make fmt` before submitting Go changes.
-Keep package names lowercase. Use mixedCaps for private identifiers and MixedCaps for exported identifiers.
-Follow existing constructors such as `NewServer` and `NewEmailService`.
-Use `log/slog` for server logging. Keep protocol logic in its package and shared storage contracts in the root package.
-Limit changes to the requested scope.
+Before writing or reviewing Go code, read [Go style references](docs/code-style.md).
+
+- Preserve existing public packages and shared backend contracts. Put implementation-only packages under `internal/`.
+- Group imports: standard library, third-party dependencies, then `github.com/yavosh/smtpbox`.
+- Use `log/slog` through a package-local `clog*` helper. Every log line includes a `component` attribute naming the subsystem.
+- Keep comments to two or three lines. Explain the non-obvious behavior.
+- Do not panic outside `main` or `init`.
+- Limit changes to the requested scope.
 
 ## Testing guidelines
 
-Use Go's standard `testing` package, `*_test.go` files, and `TestName` functions.
-Follow `TestSendEmail`: allocate a free local port, start a server, send mail, and inspect the backend.
-Stop servers during cleanup. Keep automated tests independent of external mail services.
-`TestSendSample` is skipped because it requires a running server.
-No coverage percentage is enforced. CI runs `go build -v ./...` and `go test -v ./...`.
+Use loopback port `0` and retain listeners until cleanup. Keep tests independent of external mail services.
+No coverage percentage is enforced. CI builds all packages, runs race tests, and checks lint and formatting.
 
 ## Commit and pull request guidelines
 

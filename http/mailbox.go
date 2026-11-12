@@ -7,7 +7,7 @@ import (
 	"github.com/yavosh/smtpbox"
 )
 
-func (s *Server) handleListMailboxes(w http.ResponseWriter, req *http.Request) {
+func (s *Server) handleListMailboxes(w http.ResponseWriter, _ *http.Request) {
 	list, err := s.emailService.AllMailboxes()
 	if err != nil {
 		s.log.Error("error listing mailboxes", "error", err)

@@ -326,19 +326,15 @@ func TestRingConcurrentOperations(t *testing.T) {
 	var wg sync.WaitGroup
 	errorsFound := make(chan error, 8)
 	for worker := range 4 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for range 200 {
 				if err := store.Store(fmt.Sprintf("worker-%d@nar.cy", worker), snapshotTestEmail()); err != nil {
 					errorsFound <- err
 					return
 				}
 			}
-		}()
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		})
+		wg.Go(func() {
 			for range 200 {
 				mailboxes, err := store.AllMailboxes()
 				if err != nil {
@@ -365,7 +361,7 @@ func TestRingConcurrentOperations(t *testing.T) {
 					}
 				}
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	close(errorsFound)

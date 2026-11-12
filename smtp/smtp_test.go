@@ -1,30 +1,27 @@
 package smtp_test
 
 import (
-	"fmt"
+	"context"
+	"net"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/emersion/go-smtp"
-	"github.com/phayes/freeport"
 
 	"github.com/yavosh/smtpbox/inmem"
 	s "github.com/yavosh/smtpbox/smtp"
 )
 
 func TestSendEmail(t *testing.T) {
-	port, err := freeport.GetFreePort()
-	if err != nil {
-		t.Fatalf("could not allocate port %v", err)
-	}
-
 	backend := inmem.NewEmailService()
-
-	t.Logf("using local port %d", port)
-	localServer := s.NewServer(fmt.Sprintf(":%d", port), "example.net", backend)
-	if err := localServer.Start(); err != nil {
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	t.Cleanup(cancel)
+	localServer := s.NewServer("127.0.0.1:0", "example.net", backend)
+	if err := localServer.StartContext(ctx); err != nil {
 		t.Fatalf("could not start server: %v", err)
 	}
+	t.Cleanup(func() { localServer.Stop() })
 
 	to := []string{"recipient@example.net"}
 	msg := strings.NewReader("To: recipient@example.net\r\n" +
@@ -32,10 +29,16 @@ func TestSendEmail(t *testing.T) {
 		"\r\n" +
 		"This is the email body.\r\n")
 
-	smtpClient, err := smtp.Dial(fmt.Sprintf("localhost:%d", port))
+	conn, err := (&net.Dialer{}).DialContext(ctx, "tcp", localServer.Addr().String())
 	if err != nil {
 		t.Fatalf("could not dial %v", err)
 	}
+	stop := context.AfterFunc(ctx, func() { conn.Close() })
+	smtpClient := smtp.NewClient(conn)
+	t.Cleanup(func() {
+		stop()
+		smtpClient.Close()
+	})
 
 	if err := smtpClient.Hello("localhost"); err != nil {
 		t.Fatalf("could not hello %v", err)

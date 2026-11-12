@@ -61,7 +61,7 @@ func NewEmailServiceWithLimits(maxMessages int, maxMemoryBytes int64) (smtpbox.E
 		usedBytes:      fixedBytes,
 		fixedBytes:     fixedBytes,
 		maxMemoryBytes: maxMemoryBytes,
-		log:            slog.Default(),
+		log:            clogInmem(),
 	}, nil
 }
 

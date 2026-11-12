@@ -1,11 +1,13 @@
 package smtp
 
 import (
+	"context"
 	"errors"
 	"net"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	gosmtp "github.com/emersion/go-smtp"
 
@@ -15,16 +17,8 @@ import (
 
 func newDeliveryTestClient(t *testing.T, domain string, store smtpbox.EmailStoreBackend) *gosmtp.Client {
 	t.Helper()
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	address := listener.Addr().String()
-	if err := listener.Close(); err != nil {
-		t.Fatal(err)
-	}
-	server := NewServer(address, domain, store)
-	if err := server.Start(); err != nil {
+	server := NewServer("127.0.0.1:0", domain, store)
+	if err := server.StartContext(smtpTestContext(t)); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
@@ -32,11 +26,28 @@ func newDeliveryTestClient(t *testing.T, domain string, store smtpbox.EmailStore
 			t.Error(err)
 		}
 	})
-	client, err := gosmtp.Dial(address)
+	return newSMTPTestClient(t, smtpTestContext(t), server.Addr().String())
+}
+
+func smtpTestContext(t *testing.T) context.Context {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	t.Cleanup(cancel)
+	return ctx
+}
+
+func newSMTPTestClient(t *testing.T, ctx context.Context, address string) *gosmtp.Client {
+	t.Helper()
+	conn, err := (&net.Dialer{}).DialContext(ctx, "tcp", address)
 	if err != nil {
 		t.Fatalf("dial SMTP server: %v", err)
 	}
-	t.Cleanup(func() { client.Close() })
+	stop := context.AfterFunc(ctx, func() { conn.Close() })
+	client := gosmtp.NewClient(conn)
+	t.Cleanup(func() {
+		stop()
+		client.Close()
+	})
 	return client
 }
 
@@ -64,8 +75,7 @@ func TestSMTPRecipientDomain(t *testing.T) {
 			}
 			err := client.Rcpt(tc.recipient, nil)
 			if !tc.accepted {
-				var smtpErr *gosmtp.SMTPError
-				if !errors.As(err, &smtpErr) || smtpErr.Code != 550 {
+				if smtpErr, ok := errors.AsType[*gosmtp.SMTPError](err); !ok || smtpErr.Code != 550 {
 					t.Fatalf("expected RCPT rejection 550, got %v", err)
 				}
 				if _, err := store.List(tc.mailbox); !errors.Is(err, smtpbox.ErrNotFound) {
@@ -104,8 +114,8 @@ func TestSMTPRejectedRecipientAndReset(t *testing.T) {
 	if err := client.Rcpt(accepted[0], nil); err != nil {
 		t.Fatal(err)
 	}
-	var smtpErr *gosmtp.SMTPError
-	if err := client.Rcpt("rejected@narity.com", nil); !errors.As(err, &smtpErr) || smtpErr.Code != 550 {
+	err := client.Rcpt("rejected@narity.com", nil)
+	if smtpErr, ok := errors.AsType[*gosmtp.SMTPError](err); !ok || smtpErr.Code != 550 {
 		t.Fatalf("expected RCPT rejection 550, got %v", err)
 	}
 	if err := client.Rcpt(accepted[1], nil); err != nil {
@@ -184,8 +194,7 @@ func TestSMTPStorageFailure(t *testing.T) {
 				recipients = []string{"stored@nar.cy", "failed@nar.cy", "unattempted@nar.cy"}
 			}
 			err := client.SendMail("sender@nar.cy", recipients, strings.NewReader("Subject: storage failure\r\n\r\nmessage\r\n"))
-			var smtpErr *gosmtp.SMTPError
-			if !errors.As(err, &smtpErr) || smtpErr.Code != 451 || smtpErr.EnhancedCode != (gosmtp.EnhancedCode{4, 3, 0}) {
+			if smtpErr, ok := errors.AsType[*gosmtp.SMTPError](err); !ok || smtpErr.Code != 451 || smtpErr.EnhancedCode != (gosmtp.EnhancedCode{4, 3, 0}) {
 				t.Fatalf("expected SMTP 451 4.3.0, got %v", err)
 			}
 			if strings.Contains(err.Error(), "private backend detail") {
@@ -216,8 +225,8 @@ func TestSMTPStorageFailure(t *testing.T) {
 func TestRcptRejectsMissingAddressParts(t *testing.T) {
 	s := &session{server: NewServer("127.0.0.1:0", "nar.cy", inmem.NewEmailService())}
 	for _, address := range []string{"", "nar.cy", "@nar.cy", "recipient@"} {
-		var smtpErr *gosmtp.SMTPError
-		if err := s.Rcpt(address, nil); !errors.As(err, &smtpErr) || smtpErr.Code != 550 {
+		err := s.Rcpt(address, nil)
+		if smtpErr, ok := errors.AsType[*gosmtp.SMTPError](err); !ok || smtpErr.Code != 550 {
 			t.Errorf("expected recipient %q rejected with 550, got %v", address, err)
 		}
 	}
@@ -241,8 +250,7 @@ func TestSMTPRejectsMalformedDomain(t *testing.T) {
 				}
 				err = client.Rcpt(malformed, nil)
 			}
-			var smtpErr *gosmtp.SMTPError
-			if !errors.As(err, &smtpErr) || smtpErr.Code != 501 {
+			if smtpErr, ok := errors.AsType[*gosmtp.SMTPError](err); !ok || smtpErr.Code != 501 {
 				t.Errorf("expected malformed %s domain rejected with 501, got %v", command, err)
 			}
 			if command == "MAIL" {

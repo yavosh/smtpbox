@@ -1,4 +1,4 @@
-FROM golang:1.27 AS builder
+FROM golang:1.27.4 AS builder
 
 WORKDIR /build
 COPY . ./
@@ -6,7 +6,7 @@ COPY . ./
 # ldflags -w and -s result in smaller binary.
 # -w Omits the DWARF symbol table.
 # -s Omits the symbol table and debug information.
-RUN CGO_ENABLED=0 go build -mod=vendor -a -ldflags "-w -s" -o smtpbox ./cmd/smtpbox/main.go
+RUN CGO_ENABLED=0 go build -mod=vendor -a -ldflags "-w -s" -o smtpbox ./cmd/smtpbox
 
 FROM scratch
 COPY --from=builder /build/smtpbox /smtpbox

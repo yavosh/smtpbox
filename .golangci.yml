@@ -1,0 +1,71 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - unused
+    - ineffassign
+    - misspell
+    - nilerr
+    - revive
+    - nakedret
+    - bodyclose
+    - containedctx
+    - usetesting
+    - noctx
+    - modernize
+    - errorlint
+    - forbidigo
+  settings:
+    forbidigo:
+      forbid:
+        - pattern: '^slog\.((Info|Warn|Error|Debug)(Context)?|Log|LogAttrs|Default)$'
+          msg: use the package's clog* helper so the line carries a component
+    modernize:
+      disable:
+        - stringsbuilder
+    errorlint:
+      comparison: true
+      asserts: true
+      errorf: true
+    misspell:
+      locale: US
+    errcheck:
+      check-blank: false
+    revive:
+      rules:
+        - name: indent-error-flow
+        - name: error-strings
+        - name: var-naming
+        - name: receiver-naming
+        - name: error-return
+        - name: errorf
+        - name: bare-return
+        - name: unexported-return
+        - name: context-as-argument
+          arguments:
+            - allowTypesBefore: "*testing.T"
+        - name: context-keys-type
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - errcheck
+          - forbidigo
+
+formatters:
+  enable:
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/yavosh/smtpbox
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
