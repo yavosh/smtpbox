@@ -108,7 +108,7 @@ func withSubject(message, subject string) (string, error) {
 	// Copy header lines verbatim, replacing Subject and its continuation lines.
 	var result strings.Builder
 	found, skip := false, false
-	for line := range strings.SplitAfterSeq(message[:separator+len(newline)], newline) {
+	for line := range strings.SplitAfterSeq(message[:separator+len(newline)], "\n") {
 		if strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t") {
 			if !skip {
 				result.WriteString(line)

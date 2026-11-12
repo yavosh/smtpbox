@@ -24,7 +24,7 @@ func TestSMTPMessageSize(t *testing.T) {
 		}
 	})
 
-	client := newSMTPTestClient(t, server.Addr().String())
+	client := newSMTPTestClient(t, smtpTestContext(t), server.Addr().String())
 
 	const maxBytes = 1024 * 1024
 	if ok, size := client.Extension("SIZE"); !ok || size != strconv.Itoa(maxBytes) {

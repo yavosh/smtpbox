@@ -33,12 +33,12 @@ func TestSendEmail(t *testing.T) {
 	if err != nil {
 		t.Fatalf("could not dial %v", err)
 	}
+	stop := context.AfterFunc(ctx, func() { conn.Close() })
 	smtpClient := smtp.NewClient(conn)
-	t.Cleanup(func() { smtpClient.Close() })
-	deadline, _ := ctx.Deadline()
-	if err := conn.SetDeadline(deadline); err != nil {
-		t.Fatal(err)
-	}
+	t.Cleanup(func() {
+		stop()
+		smtpClient.Close()
+	})
 
 	if err := smtpClient.Hello("localhost"); err != nil {
 		t.Fatalf("could not hello %v", err)

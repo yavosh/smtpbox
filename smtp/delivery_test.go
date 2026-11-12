@@ -26,7 +26,7 @@ func newDeliveryTestClient(t *testing.T, domain string, store smtpbox.EmailStore
 			t.Error(err)
 		}
 	})
-	return newSMTPTestClient(t, server.Addr().String())
+	return newSMTPTestClient(t, smtpTestContext(t), server.Addr().String())
 }
 
 func smtpTestContext(t *testing.T) context.Context {
@@ -36,19 +36,18 @@ func smtpTestContext(t *testing.T) context.Context {
 	return ctx
 }
 
-func newSMTPTestClient(t *testing.T, address string) *gosmtp.Client {
+func newSMTPTestClient(t *testing.T, ctx context.Context, address string) *gosmtp.Client {
 	t.Helper()
-	ctx := smtpTestContext(t)
 	conn, err := (&net.Dialer{}).DialContext(ctx, "tcp", address)
 	if err != nil {
 		t.Fatalf("dial SMTP server: %v", err)
 	}
+	stop := context.AfterFunc(ctx, func() { conn.Close() })
 	client := gosmtp.NewClient(conn)
-	t.Cleanup(func() { client.Close() })
-	deadline, _ := ctx.Deadline()
-	if err := conn.SetDeadline(deadline); err != nil {
-		t.Fatal(err)
-	}
+	t.Cleanup(func() {
+		stop()
+		client.Close()
+	})
 	return client
 }
 

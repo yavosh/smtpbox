@@ -272,6 +272,10 @@ func TestWithSubject(t *testing.T) {
 		{"folded", "From: sender@nar.cy\r\nsUbJeCt: old\r\n\tcontinued\r\nX-Test: unchanged\r\n\r\nbody", "new", "From: sender@nar.cy\r\nSubject: new\r\nX-Test: unchanged\r\n\r\nbody"},
 		{"last-header", "From: sender@nar.cy\r\nSubject: old\r\n\r\nbody", "new", "From: sender@nar.cy\r\nSubject: new\r\n\r\nbody"},
 		{"lf", "Subject: old\nX-Test: unchanged\n\nbody\r\n\r\nparagraph", "new", "Subject: new\nX-Test: unchanged\n\nbody\r\n\r\nparagraph"},
+		{"mixed", "Subject: old\nX-Test: keep\r\n\r\nbody", "new", "Subject: new\r\nX-Test: keep\r\n\r\nbody"},
+		{"mixed-reversed", "From: x@nar.cy\nSubject: old\r\n\r\nbody", "new", "From: x@nar.cy\nSubject: new\r\n\r\nbody"},
+		{"mixed-folded", "X-Test: keep\r\nSubject: old\n\tcontinued\r\nX-Other: unchanged\n\nbody\r\n", "new", "X-Test: keep\r\nSubject: new\nX-Other: unchanged\n\nbody\r\n"},
+		{"mixed-folded-crlf", "From: x@nar.cy\nSubject: old\r\n\tcontinued\nX-Test: keep\r\n\r\nbody\n\r\n", "new", "From: x@nar.cy\nSubject: new\r\nX-Test: keep\r\n\r\nbody\n\r\n"},
 		{"duplicate", "Subject: old\r\nSubject: duplicate\r\n\r\nbody", "new", "Subject: new\r\n\r\nbody"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
