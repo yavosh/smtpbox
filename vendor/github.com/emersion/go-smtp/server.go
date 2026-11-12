@@ -150,6 +150,13 @@ func (s *Server) Serve(l net.Listener) error {
 
 func (s *Server) handleConn(c *Conn) error {
 	s.locker.Lock()
+	select {
+	case <-s.done:
+		s.locker.Unlock()
+		c.Close()
+		return nil
+	default:
+	}
 	s.conns[c] = struct{}{}
 	s.locker.Unlock()
 

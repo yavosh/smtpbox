@@ -22,7 +22,9 @@ func TestSendEmail(t *testing.T) {
 
 	t.Logf("using local port %d", port)
 	localServer := s.NewServer(fmt.Sprintf(":%d", port), "example.net", backend)
-	localServer.Start()
+	if err := localServer.Start(); err != nil {
+		t.Fatalf("could not start server: %v", err)
+	}
 
 	to := []string{"recipient@example.net"}
 	msg := strings.NewReader("To: recipient@example.net\r\n" +

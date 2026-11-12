@@ -6,7 +6,6 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-	"time"
 
 	gosmtp "github.com/emersion/go-smtp"
 
@@ -26,24 +25,18 @@ func TestSMTPMessageSize(t *testing.T) {
 
 	store := inmem.NewEmailService()
 	server := NewServer(address, "nar.cy", store)
-	server.Start()
+	if err := server.Start(); err != nil {
+		t.Fatal(err)
+	}
 	t.Cleanup(func() {
 		if err := server.Stop(); err != nil {
 			t.Error(err)
 		}
 	})
 
-	var client *gosmtp.Client
-	deadline := time.Now().Add(2 * time.Second)
-	for {
-		client, err = gosmtp.Dial(address)
-		if err == nil {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("dial SMTP server: %v", err)
-		}
-		time.Sleep(time.Millisecond)
+	client, err := gosmtp.Dial(address)
+	if err != nil {
+		t.Fatalf("dial SMTP server: %v", err)
 	}
 	t.Cleanup(func() { client.Close() })
 

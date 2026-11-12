@@ -59,7 +59,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	smtpServer.Start()
+	if err := smtpServer.Start(); err != nil {
+		slog.Error("error starting smtp", "error", err)
+		os.Exit(1)
+	}
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)

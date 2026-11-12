@@ -6,7 +6,6 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 
 	gosmtp "github.com/emersion/go-smtp"
 
@@ -25,24 +24,20 @@ func newDeliveryTestClient(t *testing.T, domain string, store smtpbox.EmailStore
 		t.Fatal(err)
 	}
 	server := NewServer(address, domain, store)
-	server.Start()
+	if err := server.Start(); err != nil {
+		t.Fatal(err)
+	}
 	t.Cleanup(func() {
 		if err := server.Stop(); err != nil {
 			t.Error(err)
 		}
 	})
-	deadline := time.Now().Add(2 * time.Second)
-	for {
-		client, err := gosmtp.Dial(address)
-		if err == nil {
-			t.Cleanup(func() { client.Close() })
-			return client
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("dial SMTP server: %v", err)
-		}
-		time.Sleep(time.Millisecond)
+	client, err := gosmtp.Dial(address)
+	if err != nil {
+		t.Fatalf("dial SMTP server: %v", err)
 	}
+	t.Cleanup(func() { client.Close() })
+	return client
 }
 
 func TestSMTPRecipientDomain(t *testing.T) {
