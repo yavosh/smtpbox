@@ -9,6 +9,56 @@ import (
 	mdns "github.com/miekg/dns"
 )
 
+func TestDNSDefaultListenAddress(t *testing.T) {
+	server := NewServer(0, "nar.cy")
+	if server.server.Addr != "127.0.0.1:0" {
+		t.Errorf("DNS default listen address must be loopback, got %q", server.server.Addr)
+	}
+}
+
+func TestDNSListenHostOptions(t *testing.T) {
+	for _, host := range []string{"127.0.0.1", "0.0.0.0", "::1"} {
+		server := NewServer(1053, "nar.cy", WithListenHost(host))
+		if server.server.Addr != net.JoinHostPort(host, "1053") {
+			t.Errorf("listen host override was not applied for %q", host)
+		}
+	}
+	server := NewServer(0, "nar.cy", WithListenHost(""))
+	if err := server.Start(); err == nil {
+		server.Stop()
+		t.Error("empty DNS listen host must be rejected")
+	}
+}
+
+func TestDNSDefaultLocalServe(t *testing.T) {
+	server := NewServer(0, "nar.cy")
+	started := make(chan struct{})
+	server.server.NotifyStartedFunc = func() { close(started) }
+	if err := server.Start(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("DNS server did not become ready")
+	}
+	t.Cleanup(func() {
+		if err := server.Stop(); err != nil {
+			t.Error(err)
+		}
+	})
+	address := server.server.PacketConn.LocalAddr().(*net.UDPAddr)
+	if !address.IP.Equal(net.IPv4(127, 0, 0, 1)) {
+		t.Errorf("default DNS listener bound outside loopback: %v", address.IP)
+	}
+	query := new(mdns.Msg)
+	query.SetQuestion("nar.cy.", mdns.TypeMX)
+	reply, _, err := (&mdns.Client{Timeout: time.Second}).Exchange(query, address.String())
+	if err != nil || len(reply.Answer) != 1 {
+		t.Errorf("local DNS query failed: %v", err)
+	}
+}
+
 func startDNSTestServer(t *testing.T, domain string) string {
 	t.Helper()
 	packet, err := net.ListenPacket("udp", "127.0.0.1:0")

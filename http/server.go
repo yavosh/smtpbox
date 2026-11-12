@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"runtime/debug"
+	"strconv"
 	"time"
 
 	"github.com/yavosh/smtpbox"
@@ -15,21 +16,40 @@ import (
 
 type Server struct {
 	port         int
+	listenHost   string
 	mux          *http.ServeMux
 	server       *http.Server
+	auth         *basicAuth
+	authErr      error
 	log          *slog.Logger
 	emailService smtpbox.EmailStoreBackend
 }
 
-func NewServer(port int, emailService smtpbox.EmailStoreBackend) *Server {
+type Option func(*Server)
+
+func WithListenHost(host string) Option {
+	return func(s *Server) { s.listenHost = host }
+}
+
+func NewServer(port int, emailService smtpbox.EmailStoreBackend, opts ...Option) *Server {
 	mux := http.NewServeMux()
 
 	s := &Server{
 		port:         port,
+		listenHost:   "127.0.0.1",
 		mux:          mux,
-		server:       &http.Server{Handler: recoveryMiddleware(mux)},
 		emailService: emailService,
 		log:          slog.Default(),
+	}
+	for _, opt := range opts {
+		opt(s)
+	}
+	s.server = &http.Server{
+		Addr:              net.JoinHostPort(s.listenHost, strconv.Itoa(s.port)),
+		Handler:           recoveryMiddleware(basicAuthMiddleware(s.auth, mux)),
+		ReadHeaderTimeout: 5 * time.Second,
+		// Route OPTIONS * through authentication instead of the automatic response.
+		DisableGeneralOptionsHandler: s.auth != nil,
 	}
 
 	mux.HandleFunc("GET /{$}", s.handleIndex)
@@ -41,8 +61,14 @@ func NewServer(port int, emailService smtpbox.EmailStoreBackend) *Server {
 }
 
 func (s *Server) Start() error {
+	if s.listenHost == "" {
+		return errors.New("listen host must not be empty")
+	}
+	if s.authErr != nil {
+		return s.authErr
+	}
 	s.log.Info("starting http server", "port", s.port)
-	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", s.port))
+	ln, err := net.Listen("tcp", s.server.Addr)
 	if err != nil {
 		return fmt.Errorf("http serve: %w", err)
 	}
