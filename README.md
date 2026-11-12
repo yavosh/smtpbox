@@ -60,7 +60,9 @@ SMTP_PORT=2525 SMTP_DOMAIN=example.net ./bin/smtpbox
 
 ### 1. Send an email via SMTP
 
-Using the included `sendmail` utility:
+The included `sendmail` utility uses plaintext SMTP for local development.
+Optional `-sasl-username` and `-sasl-password` flags send test credentials without encryption.
+SMTPBox accepts any test credentials.
 
 ```bash
 go run ./cmd/sendmail -smtp-port 1025 \

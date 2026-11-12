@@ -4,6 +4,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -34,7 +35,7 @@ func main() {
 	flag.IntVar(&smtpPort, "smtp-port", 1025, "port for smtp server where to send the email")
 	flag.StringVar(&emailSubject, "email-subject", "test email", "email subject")
 	flag.StringVar(&emailFrom, "email-from", "sendmail@"+hostname, "email from")
-	flag.StringVar(&emailRecipient, "email-recipient", "user@example.net", "email recipient, use command to supply many")
+	flag.StringVar(&emailRecipient, "email-recipient", "user@localhost", "email recipient, use command to supply many")
 	flag.StringVar(&emailBody, "email-body", "hi from sample email", "body for the email")
 	flag.StringVar(&saslUsername, "sasl-username", "username", "sasl authentication")
 	flag.StringVar(&saslPassword, "sasl-password", "", "sasl password")
@@ -48,10 +49,28 @@ func main() {
 
 	recipients := strings.Split(emailRecipient, ",")
 	msg := strings.NewReader(emailBody)
-	if err := smtp.SendMail(fmt.Sprintf("%s:%d", smtpHost, smtpPort), auth, emailFrom, recipients, msg); err != nil {
+	if err := sendMail(fmt.Sprintf("%s:%d", smtpHost, smtpPort), auth, emailFrom, recipients, msg); err != nil {
 		fmt.Printf("Error sending email: %v\n", err)
 		os.Exit(-10)
 	}
 
 	fmt.Printf("Email sent to %s\n", emailRecipient)
+}
+
+func sendMail(address string, auth sasl.Client, from string, recipients []string, message io.Reader) error {
+	client, err := smtp.Dial(address)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+
+	if auth != nil {
+		if err := client.Auth(auth); err != nil {
+			return err
+		}
+	}
+	if err := client.SendMail(from, recipients, message); err != nil {
+		return err
+	}
+	return client.Quit()
 }
