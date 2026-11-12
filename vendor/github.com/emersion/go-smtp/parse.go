@@ -192,6 +192,9 @@ func (p *parser) parseMailbox() (string, error) {
 		if ch == ' ' || ch == '\t' || ch == '>' {
 			break
 		}
+		if ch == '@' {
+			return "", fmt.Errorf("malformed domain")
+		}
 		p.readByte()
 		sb.WriteByte(ch)
 	}

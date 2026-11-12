@@ -189,9 +189,9 @@ func TestWelcomeEmail(t *testing.T) {
 
 ## Development
 
-The vendored SMTP reader includes a patch for messages exactly at the size limit.
-Preserve this patch when updating dependencies, and build with vendored dependencies.
-The `-mod=mod` build option bypasses this correction.
+The vendored SMTP library corrects message size boundary handling and rejects malformed domains.
+Preserve these corrections when updating dependencies, and build with vendored dependencies.
+The `-mod=mod` build option bypasses these corrections.
 
 ```bash
 make build     # Build binaries

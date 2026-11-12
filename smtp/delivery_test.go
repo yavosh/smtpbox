@@ -230,3 +230,54 @@ func TestRcptRejectsMissingAddressParts(t *testing.T) {
 		t.Errorf("invalid recipients entered envelope: %v", s.rcpt)
 	}
 }
+
+func TestSMTPRejectsMalformedDomain(t *testing.T) {
+	for _, command := range []string{"MAIL", "RCPT"} {
+		t.Run(command, func(t *testing.T) {
+			store := inmem.NewEmailService()
+			client := newDeliveryTestClient(t, "nar.cy", store)
+			malformed := "recipient@narity.com@nar.cy"
+			var err error
+			if command == "MAIL" {
+				err = client.Mail(malformed, nil)
+			} else {
+				if err := client.Mail("sender@nar.cy", nil); err != nil {
+					t.Fatal(err)
+				}
+				err = client.Rcpt(malformed, nil)
+			}
+			var smtpErr *gosmtp.SMTPError
+			if !errors.As(err, &smtpErr) || smtpErr.Code != 501 {
+				t.Errorf("expected malformed %s domain rejected with 501, got %v", command, err)
+			}
+			if command == "MAIL" {
+				if err := client.Reset(); err != nil {
+					t.Fatal(err)
+				}
+				if err := client.Mail("sender@nar.cy", nil); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := client.Rcpt("valid@nar.cy", nil); err != nil {
+				t.Fatal(err)
+			}
+			data, err := client.Data()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := data.Write([]byte("Subject: valid domain\r\n\r\nmessage\r\n")); err != nil {
+				t.Fatal(err)
+			}
+			if err := data.Close(); err != nil {
+				t.Fatal(err)
+			}
+			emails, err := store.List("valid@nar.cy")
+			if err != nil || len(emails) != 1 || !reflect.DeepEqual(emails[0].To, []string{"valid@nar.cy"}) {
+				t.Errorf("expected only valid recipient stored, got %v, %v", emails, err)
+			}
+			if _, err := store.List(malformed); !errors.Is(err, smtpbox.ErrNotFound) {
+				t.Errorf("expected malformed recipient absent, got %v", err)
+			}
+		})
+	}
+}
