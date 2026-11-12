@@ -32,24 +32,15 @@ func startSendmailTestServer(t *testing.T) (string, smtpbox.EmailStoreBackend) {
 	}
 	store := inmem.NewEmailService()
 	server := smtp.NewServer(address, "nar.cy", store)
-	server.Start()
+	if err := server.Start(); err != nil {
+		t.Fatal(err)
+	}
 	t.Cleanup(func() {
 		if err := server.Stop(); err != nil {
 			t.Error(err)
 		}
 	})
-	deadline := time.Now().Add(2 * time.Second)
-	for {
-		conn, err := net.DialTimeout("tcp", address, 100*time.Millisecond)
-		if err == nil {
-			conn.Close()
-			return address, store
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("wait for SMTP server: %v", err)
-		}
-		time.Sleep(time.Millisecond)
-	}
+	return address, store
 }
 
 func TestSendmailCLI(t *testing.T) {

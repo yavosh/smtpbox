@@ -165,12 +165,16 @@ List all emails in a mailbox.
 
 ## Integration Test Example (Go)
 
+`Start` returns after the SMTP listener is ready and reports unavailable listen addresses as errors.
+
 ```go
 func TestWelcomeEmail(t *testing.T) {
     // Start smtpbox
     backend := inmem.NewEmailService()
     srv := smtp.NewServer(":1025", "localhost", backend)
-    srv.Start()
+    if err := srv.Start(); err != nil {
+        t.Fatal(err)
+    }
     defer srv.Stop()
 
     // ... trigger your app to send a welcome email to user@localhost ...
@@ -191,7 +195,7 @@ func TestWelcomeEmail(t *testing.T) {
 
 ## Development
 
-The vendored SMTP library corrects message size boundary handling and rejects malformed domains.
+The vendored SMTP library corrects message size boundaries, malformed domains, and connection handling during shutdown.
 Preserve these corrections when updating dependencies, and build with vendored dependencies.
 The `-mod=mod` build option bypasses these corrections.
 
