@@ -111,6 +111,7 @@ func (s *EmailBackend) Store(mailbox string, eml smtpbox.Email) error {
 	mailbox = strings.Clone(mailbox)
 	eml.From = strings.Clone(eml.From)
 	eml.Body = strings.Clone(eml.Body)
+	eml.Received = eml.Received.UTC()
 	if eml.To != nil {
 		recipients := make([]string, len(eml.To))
 		for i, recipient := range eml.To {

@@ -289,6 +289,38 @@ func TestRingOwnsBackingStorage(t *testing.T) {
 	assertRingAccounting(t, store)
 }
 
+func TestRingNormalizesReceivedToUTC(t *testing.T) {
+	store := newRingTestStore(t, 1, 1024)
+	location := time.FixedZone(strings.Repeat("zone", 1<<18), -(3*60+30)*60)
+	message := snapshotTestEmail()
+	message.Received = time.Date(2026, time.November, 12, 10, 30, 0, 123, location)
+	original := message.Received
+	if err := store.Store("recipient@nar.cy", message); err != nil {
+		t.Fatal(err)
+	}
+	emails, err := store.List("recipient@nar.cy")
+	if err != nil || len(emails) != 1 {
+		t.Fatalf("expected one stored message: count=%d error=%v", len(emails), err)
+	}
+	if emails[0].Received.Location() != time.UTC {
+		t.Error("stored timestamp retains the caller's time zone")
+	}
+	if !emails[0].Received.Equal(original) {
+		t.Error("timestamp normalization changed the received instant")
+	}
+	metadata, err := store.GetMailbox("recipient@nar.cy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if metadata.CreatedAt.Location() != time.UTC || !metadata.CreatedAt.Equal(original) {
+		t.Error("mailbox timestamp must retain the instant in UTC")
+	}
+	if message.Received != original || message.Received.Location() != location {
+		t.Error("storage changed the caller's timestamp")
+	}
+	assertRingAccounting(t, store)
+}
+
 func TestRingConcurrentOperations(t *testing.T) {
 	store := newRingTestStore(t, 32, 64<<10)
 	var wg sync.WaitGroup

@@ -72,6 +72,7 @@ Mailboxes disappear when their last retained copy is evicted.
 Mailbox `CreatedAt` identifies the oldest retained message and can advance after eviction.
 
 The memory budget includes backend state, preallocated ring slots, owned string bytes, and recipient slice backing storage.
+Received timestamps use UTC, preserving the original instant without retaining caller time zone data.
 Allocator/runtime overhead, active requests, and snapshots retained by callers are outside this budget.
 Total process memory also includes those excluded costs.
 
